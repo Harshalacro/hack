@@ -207,3 +207,34 @@ export const CONFIDENCE_TONE = {
   medium: 'text-risk-yellow border-risk-yellow/40 bg-risk-yellow/10',
   low: 'text-risk-orange border-risk-orange/45 bg-risk-orange/10',
 };
+
+/**
+ * WMO weather codes (as Open-Meteo reports them) to an icon and a short label.
+ * Codes are grouped the way the WMO table groups them; night swaps the sun for a moon.
+ */
+const WMO = [
+  [[0], '☀️', '🌙', 'Clear', 'साफ़'],
+  [[1, 2], '🌤️', '☁️', 'Partly cloudy', 'आंशिक बादल'],
+  [[3], '☁️', '☁️', 'Overcast', 'घने बादल'],
+  [[45, 48], '🌫️', '🌫️', 'Fog', 'कोहरा'],
+  [[51, 53, 55, 56, 57], '🌦️', '🌧️', 'Drizzle', 'बूंदाबांदी'],
+  [[61, 66, 80], '🌦️', '🌧️', 'Light rain', 'हल्की बारिश'],
+  [[63, 81], '🌧️', '🌧️', 'Rain', 'बारिश'],
+  [[65, 67, 82], '🌧️', '🌧️', 'Heavy rain', 'भारी बारिश'],
+  [[71, 73, 75, 77, 85, 86], '🌨️', '🌨️', 'Snow', 'बर्फ़बारी'],
+  [[95], '⛈️', '⛈️', 'Thunderstorm', 'आंधी-तूफ़ान'],
+  [[96, 99], '⛈️', '⛈️', 'Thunderstorm, hail', 'तूफ़ान, ओले'],
+];
+
+export function weatherInfo(code, isDay = true) {
+  const row = WMO.find(([codes]) => codes.includes(code));
+  if (!row) return { icon: '🌡️', en: 'Weather', hi: 'मौसम' };
+  const [, day, night, en, hi] = row;
+  return { icon: isDay ? day : night, en, hi };
+}
+
+const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+export function compass(deg) {
+  if (deg === null || deg === undefined) return '';
+  return COMPASS[Math.round(deg / 45) % 8];
+}

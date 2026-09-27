@@ -44,6 +44,11 @@ USER_AGENT = "JalDrishti-prototype/1.0 (hackathon flood-risk prototype)"
 
 HOURLY_VARS = "precipitation,soil_moisture_0_to_1cm,soil_moisture_3_to_9cm,soil_moisture_9_to_27cm"
 DAILY_WEATHER_VARS = "precipitation_sum,precipitation_hours,precipitation_probability_max"
+# Conditions right now, for display only; the risk engine scores the hourly series.
+CURRENT_WEATHER_VARS = (
+    "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,"
+    "weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,is_day"
+)
 DAILY_FLOOD_VARS = (
     "river_discharge,river_discharge_mean,river_discharge_median,"
     "river_discharge_max,river_discharge_min,river_discharge_p25,river_discharge_p75"
@@ -146,6 +151,7 @@ async def fetch_weather(client: httpx.AsyncClient, locations: Sequence[dict]) ->
             **_coord_params([(l["lat"], l["lon"]) for l in batch]),
             "hourly": HOURLY_VARS,
             "daily": DAILY_WEATHER_VARS,
+            "current": CURRENT_WEATHER_VARS,
             "past_days": PAST_DAYS,
             "forecast_days": FORECAST_DAYS,
             "timezone": TIMEZONE,
@@ -159,6 +165,7 @@ async def fetch_weather(client: httpx.AsyncClient, locations: Sequence[dict]) ->
             out[loc["id"]] = {
                 "hourly": item.get("hourly") or {},
                 "daily": item.get("daily") or {},
+                "current": item.get("current") or {},
                 "elevation": item.get("elevation"),
                 "utc_offset_seconds": item.get("utc_offset_seconds", 0),
             }

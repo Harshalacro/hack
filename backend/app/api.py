@@ -253,6 +253,7 @@ async def all_locations(date: str | None = None) -> dict:
                 "confidence_value": a["confidence"]["value"],
                 "impact_index": a["exposure"]["impact_index"],
                 "rain_24h_mm": a["observations"]["rain_24h_mm"],
+                "weather": a.get("current_weather"),
                 "discharge_cumecs": a["river"].get("current_cumecs"),
                 "percentile_for_season": a["river"].get("percentile_for_season"),
                 "top_factor": a["factors"][0]["label_en"] if a["factors"] else None,

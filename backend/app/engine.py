@@ -230,6 +230,7 @@ class Engine:
                 "as_of_hour": fv["rain"].get("as_of_hour"),
                 "imd_class": fv["imd_class"],
             },
+            "current_weather": current_weather(weather.get("current")),
             "river": {k: v for k, v in fv["river"].items() if k != "seasonal_bands"} | {
                 "seasonal_bands": fv["river"].get("seasonal_bands")
             },
@@ -571,10 +572,56 @@ def state_rollup(snapshot: Snapshot) -> list[dict]:
                     "river": worst["location"].get("river"),
                 },
                 "direction": worst["risk"]["direction"],
+                "weather": _state_weather(items),
             }
         )
     out.sort(key=lambda s: s["score"], reverse=True)
     return out
+
+
+def current_weather(cur: dict | None) -> dict | None:
+    """Open-Meteo's `current` block, renamed for the UI. None for replays, which have no 'now'."""
+    if not cur or cur.get("temperature_2m") is None:
+        return None
+    return {
+        "time": cur.get("time"),
+        "temp_c": cur.get("temperature_2m"),
+        "feels_like_c": cur.get("apparent_temperature"),
+        "humidity_pct": cur.get("relative_humidity_2m"),
+        "precip_mm": cur.get("precipitation"),
+        "code": cur.get("weather_code"),
+        "cloud_pct": cur.get("cloud_cover"),
+        "wind_kmh": cur.get("wind_speed_10m"),
+        "wind_dir_deg": cur.get("wind_direction_10m"),
+        "is_day": bool(cur.get("is_day", 1)),
+    }
+
+
+def _state_weather(items: Sequence[dict]) -> dict | None:
+    """
+    Current conditions at the state's most populous monitored place, plus the
+    temperature spread and wettest reading across all its places - one town's sky
+    is a fair headline, but a state spans too much ground for it to be the whole story.
+    """
+    with_wx = [a for a in items if a.get("current_weather")]
+    if not with_wx:
+        return None
+    lead = max(with_wx, key=lambda a: a["location"]["population"] or 0)
+    temps = [a["current_weather"]["temp_c"] for a in with_wx]
+    wettest = max(with_wx, key=lambda a: a["current_weather"].get("precip_mm") or 0)
+    return {
+        **lead["current_weather"],
+        "place": lead["location"]["name"],
+        "place_hi": lead["location"].get("name_hi"),
+        "temp_min_c": min(temps),
+        "temp_max_c": max(temps),
+        "raining_places": sum(1 for a in with_wx if (a["current_weather"].get("precip_mm") or 0) > 0),
+        "wettest": {
+            "name": wettest["location"]["name"],
+            "name_hi": wettest["location"].get("name_hi"),
+            "precip_mm": wettest["current_weather"].get("precip_mm") or 0,
+        },
+    }
 
 
 def _observation_rows(assessments: Sequence[dict]) -> list[tuple[str, str, str, float | None, str]]:

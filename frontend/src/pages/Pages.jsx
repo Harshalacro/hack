@@ -5,12 +5,14 @@ import IndiaMap from '../components/IndiaMap';
 import {
   canonicalState,
   compactPopulation,
+  compass,
   directionGlyph,
   longDateIST,
   stateName,
   tierColour,
   TIER_LABELS,
   TIER_ORDER,
+  weatherInfo,
 } from '../lib/format';
 import { ALERT_COLOUR, GovBadge, STATUS_STYLE } from '../components/Official';
 
@@ -244,6 +246,7 @@ export function StateMonitor({ lang, country, locations = [], alerts = [], onVie
     if (sort === 'name') list.sort((a, b) => a.state.localeCompare(b.state));
     else if (sort === 'gauges') list.sort((a, b) => (gaugeByState[b.state]?.danger ?? 0) - (gaugeByState[a.state]?.danger ?? 0) || b.score - a.score);
     else if (sort === 'population') list.sort((a, b) => b.population_at_risk - a.population_at_risk);
+    else if (sort === 'rain') list.sort((a, b) => (b.weather?.wettest?.precip_mm ?? 0) - (a.weather?.wettest?.precip_mm ?? 0) || b.score - a.score);
     else list.sort((a, b) => b.score - a.score);
     return list;
   }, [country, sort, tier, query, gaugeByState, picked]);
@@ -271,6 +274,7 @@ export function StateMonitor({ lang, country, locations = [], alerts = [], onVie
             <option value="risk">{lang === 'hi' ? 'जोखिम अनुसार' : 'Sort: risk'}</option>
             <option value="gauges">{lang === 'hi' ? 'खतरे वाले गेज अनुसार' : 'Sort: gauges above danger'}</option>
             <option value="population">{lang === 'hi' ? 'जनसंख्या अनुसार' : 'Sort: people at risk'}</option>
+            {!replayDate && <option value="rain">{lang === 'hi' ? 'अभी बारिश अनुसार' : 'Sort: raining now'}</option>}
             <option value="name">{lang === 'hi' ? 'नाम अनुसार' : 'Sort: name'}</option>
           </select>
         </div>
@@ -354,6 +358,7 @@ export function StateMonitor({ lang, country, locations = [], alerts = [], onVie
                     <div className="text-[9px] uppercase tracking-wide text-ink-500">{lang === 'hi' ? 'जोखिम में' : 'at risk'}</div>
                   </div>
                 </div>
+                {!replayDate && <StateWeather lang={lang} wx={s.weather} />}
                 {g?.worst?.above_danger_m > 0 && (
                   <div className="mt-2 rounded bg-risk-red/10 px-2 py-1 text-[10.5px] font-semibold text-risk-red">
                     {g.worst.name}: +{g.worst.above_danger_m} m {lang === 'hi' ? 'खतरे के निशान से ऊपर' : 'above danger'}
@@ -365,6 +370,48 @@ export function StateMonitor({ lang, country, locations = [], alerts = [], onVie
         })}
       </div>
     </PageShell>
+  );
+}
+
+/**
+ * Current conditions on a state card: the sky at its most populous monitored
+ * place, then the spread across the state so one town doesn't stand in for all.
+ */
+function StateWeather({ lang, wx }) {
+  if (!wx) return null;
+  const L = (en, hiText) => (lang === 'hi' ? hiText : en);
+  const info = weatherInfo(wx.code, wx.is_day);
+  const place = lang === 'hi' && wx.place_hi ? wx.place_hi : wx.place;
+  const wettest = lang === 'hi' && wx.wettest?.name_hi ? wx.wettest.name_hi : wx.wettest?.name;
+  return (
+    <div className="mt-2 rounded-lg border border-ink-800 bg-ink-850 px-2.5 py-2">
+      <div className="flex items-center gap-2">
+        <span className="text-2xl leading-none" aria-hidden>{info.icon}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-mono text-lg font-bold text-ink-100">{Math.round(wx.temp_c)}°C</span>
+            <span className={`truncate text-[11px] font-semibold text-ink-300 ${hi(lang)}`}>{L(info.en, info.hi)}</span>
+          </div>
+          <div className={`truncate text-[10px] text-ink-500 ${hi(lang)}`}>
+            {L('Now at', 'अभी')} {place}
+            {wx.feels_like_c != null && ` · ${L('feels', 'महसूस')} ${Math.round(wx.feels_like_c)}°`}
+          </div>
+        </div>
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10.5px] text-ink-400">
+        <span title={L('Relative humidity', 'सापेक्ष आर्द्रता')}>💧 {wx.humidity_pct ?? '—'}%</span>
+        <span title={L('Wind', 'हवा')}>💨 {wx.wind_kmh != null ? Math.round(wx.wind_kmh) : '—'} km/h {compass(wx.wind_dir_deg)}</span>
+        <span title={L('Temperature range across monitored places', 'निगरानी स्थानों में तापमान सीमा')}>
+          🌡️ {Math.round(wx.temp_min_c)}–{Math.round(wx.temp_max_c)}°
+        </span>
+      </div>
+      {wx.raining_places > 0 && (
+        <div className={`mt-1 truncate text-[10.5px] font-semibold text-chakra-500 ${hi(lang)}`}>
+          🌧️ {L(`Raining at ${wx.raining_places} place${wx.raining_places > 1 ? 's' : ''}`, `${wx.raining_places} स्थानों पर बारिश`)}
+          {` · ${L('heaviest', 'सर्वाधिक')} ${wettest} ${wx.wettest.precip_mm} mm ${L('in 15 min', '15 मिनट में')}`}
+        </div>
+      )}
+    </div>
   );
 }
 
