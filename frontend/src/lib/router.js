@@ -10,7 +10,8 @@ import { useEffect, useState } from 'react';
  */
 
 export const ROUTES = [
-  { name: 'overview', pattern: /^\/?$/ },
+  { name: 'home', pattern: /^\/?$/ },
+  { name: 'overview', pattern: /^\/map$/ },
   { name: 'state', pattern: /^\/state\/([^/]+)$/, keys: ['state'] },
   { name: 'location', pattern: /^\/location\/([^/]+)$/, keys: ['id'] },
   { name: 'hotspots', pattern: /^\/hotspots(?:\/([^/]+))?$/, keys: ['id'] },
@@ -19,6 +20,9 @@ export const ROUTES = [
   { name: 'states', pattern: /^\/states$/ },
   { name: 'timemachine', pattern: /^\/time-machine$/ },
   { name: 'about', pattern: /^\/about$/ },
+  { name: 'notifications', pattern: /^\/notifications$/ },
+  { name: 'plan', pattern: /^\/plan$/ },
+  { name: 'resources', pattern: /^\/resources$/ },
 ];
 
 export function parseHash(hash) {

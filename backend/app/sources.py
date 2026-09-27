@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from datetime import date, datetime, timedelta
 from typing import Any, Iterable, Sequence
@@ -62,6 +63,34 @@ class SourceError(RuntimeError):
     """Raised inside a single fetch; callers downgrade it to degraded health."""
 
 
+# Open-Meteo's free tier has minute, hour and day quotas per IP. A 429 names which
+# one was hit; until it resets, every Open-Meteo call fails fast here instead of
+# retrying every few minutes and keeping the quota exhausted.
+_limit: dict = {"until": 0.0, "kind": None, "reason": None}
+
+
+def _note_limit(reason: str) -> None:
+    now = time.time()
+    text = (reason or "").lower()
+    if "daily" in text:
+        # Daily quotas reset at 00:00 UTC; probe again a few minutes after.
+        until, kind = (math.floor(now / 86400) + 1) * 86400 + 300, "daily"
+    elif "hourly" in text:
+        until, kind = (math.floor(now / 3600) + 1) * 3600 + 60, "hourly"
+    else:
+        until, kind = now + 65, "minutely"
+    _limit.update({"until": until, "kind": kind, "reason": (reason or "rate limited")[:160]})
+    log.warning("Open-Meteo %s limit reached; pausing Open-Meteo calls until %s UTC", kind,
+                time.strftime("%Y-%m-%d %H:%M", time.gmtime(until)))
+
+
+def limit_status() -> dict:
+    """Whether Open-Meteo calls are paused by a quota, and until when (epoch seconds)."""
+    active = time.time() < _limit["until"]
+    return {"paused": active, "until": _limit["until"] if active else None, "kind": _limit["kind"] if active else None,
+            "reason": _limit["reason"] if active else None}
+
+
 def _chunks(seq: Sequence[Any], n: int) -> Iterable[Sequence[Any]]:
     for i in range(0, len(seq), n):
         yield seq[i : i + n]
@@ -92,10 +121,14 @@ async def _get_json(
     *,
     tries: int = 3,
     timeout: float = HTTP_TIMEOUT,
+    retry_delay: float = 20.0,
 ) -> Any:
-    delay = 20.0
+    delay = retry_delay
     last: Exception | None = None
     via_relay = False
+    if "open-meteo.com" in url and time.time() < _limit["until"] and not CWC_RELAY:
+        raise SourceError(f"rate limited (429): Open-Meteo {_limit['kind']} limit, paused until "
+                          f"{time.strftime('%H:%M', time.gmtime(_limit['until']))} UTC")
     for attempt in range(1, tries + 1):
         try:
             if via_relay:
@@ -115,11 +148,19 @@ async def _get_json(
                     via_relay = True
                     last = SourceError("rate limited (429)")
                     continue
-                raise SourceError("rate limited (429)" + (" via relay" if via_relay else ""))
+                try:
+                    reason = resp.json().get("reason", "")
+                except ValueError:
+                    reason = ""
+                if "open-meteo.com" in url and not via_relay:
+                    _note_limit(reason)
+                raise SourceError("rate limited (429)" + (" via relay" if via_relay else "") + (f": {reason}" if reason else ""))
             resp.raise_for_status()
             return resp.json()
         except Exception as exc:
             last = exc
+            if "rate limited" in str(exc):
+                raise  # a quota does not clear in 20 s; waiting only holds the refresh open
             if attempt < tries:
                 await asyncio.sleep(delay)
                 delay *= 1.6

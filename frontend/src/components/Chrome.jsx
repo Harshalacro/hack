@@ -163,6 +163,9 @@ export function Masthead({
   onRefresh,
   onOpenSystem,
   onOpenCopilot,
+  onOpenTour,
+  user,
+  onLogout,
   children,
 }) {
   // A local ticking clock, so "updated 3 min ago" ages visibly between refreshes
@@ -192,7 +195,7 @@ export function Masthead({
               ? 'बाढ़ पूर्वानुमान अनुसंधान प्रोटोटाइप · आधिकारिक चेतावनी हेतु IMD / CWC देखें'
               : 'Flood forecasting research prototype · For official warnings see IMD / CWC'}
           </span>
-          <div className="ml-auto flex shrink-0 items-center gap-3">
+          <div className="ml-auto flex shrink-0 items-center gap-3" data-tour="access">
             <span className="hidden sm:block">
               <TextSizeControl lang={lang} />
             </span>
@@ -231,64 +234,91 @@ export function Masthead({
             </div>
           </div>
 
-          <div className="mx-auto hidden min-w-0 flex-1 md:block">{children}</div>
+          <div className="mx-auto hidden min-w-0 flex-1 md:block" data-tour="search">{children}</div>
 
           <div className="ml-auto flex items-center gap-2">
-            <div className="hidden items-center gap-2 rounded-lg border border-indiagreen-500/30 bg-indiagreen-500/[0.06] px-2.5 py-1.5 sm:flex">
-              <LiveDot refreshing={refreshing} />
-              <div className="leading-tight">
-                <div className="text-[9.5px] font-bold uppercase tracking-wider text-indiagreen-300">
-                  {refreshing ? t(lang, 'refreshing') : t(lang, 'live')}
-                </div>
-                <div className="font-mono text-[11px] text-ink-300">
-                  {meta ? relativeAge(ageSeconds, lang) : '—'}
+            {meta && meta.weather_mode && meta.weather_mode !== 'live' ? (
+              // Weather source unavailable (e.g. over its daily quota): say so, and
+              // that gauges and official alerts are still updating.
+              <div
+                className="hidden items-center gap-2 rounded-lg border border-risk-orange/40 bg-risk-orange/[0.07] px-2.5 py-1.5 sm:flex"
+                data-tour="live"
+                title={
+                  lang === 'hi'
+                    ? 'मौसम स्रोत अभी उपलब्ध नहीं; नदी गेज व आधिकारिक चेतावनियाँ लाइव हैं'
+                    : `Weather source unavailable${meta.weather_pause_kind ? ` (${meta.weather_pause_kind} limit reached)` : ''}. River gauges and official alerts are still live; scores update when they change.`
+                }
+              >
+                <LiveDot refreshing={refreshing} />
+                <div className="leading-tight">
+                  <div className="text-[9.5px] font-bold uppercase tracking-wider text-risk-orange">
+                    {lang === 'hi' ? 'गेज लाइव · मौसम रुका' : 'Gauges live · weather paused'}
+                  </div>
+                  <div className="font-mono text-[11px] text-ink-300">
+                    {lang === 'hi' ? 'मौसम ' : 'weather '}
+                    {relativeAge(meta.weather_age_seconds + tick * 15, lang)}
+                    {meta.weather_paused_until &&
+                      ` · ${lang === 'hi' ? 'फिर' : 'resumes'} ${new Date(meta.weather_paused_until).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`}
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div
+                className="hidden items-center gap-2 rounded-lg border border-indiagreen-500/30 bg-indiagreen-500/[0.06] px-2.5 py-1.5 sm:flex"
+                data-tour="live"
+                title={lang === 'hi' ? 'आँकड़े अपने-आप अद्यतन होते हैं' : 'Data updates automatically — no need to refresh'}
+              >
+                <LiveDot refreshing={refreshing} />
+                <div className="leading-tight">
+                  <div className="text-[9.5px] font-bold uppercase tracking-wider text-indiagreen-300">
+                    {refreshing ? t(lang, 'refreshing') : lang === 'hi' ? 'लाइव · स्वतः अद्यतन' : 'Live · auto-updates'}
+                  </div>
+                  <div className="font-mono text-[11px] text-ink-300">
+                    {meta ? relativeAge(ageSeconds, lang) : '—'}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <button
               type="button"
-              className="btn border-chakra-500/30 bg-navy-50 text-chakra-500 hover:border-chakra-500 hover:bg-navy-100 hover:text-chakra-500"
+              className="btn border-chakra-500 bg-chakra-500 text-white hover:bg-[#123A78] hover:text-white"
               onClick={onOpenCopilot}
-              title={lang === 'hi' ? 'एआई सहायक' : 'AI Copilot'}
+              data-tour="copilot"
+              title={lang === 'hi' ? 'एआई सहायक से पूछें' : 'Ask the AI Copilot'}
               aria-label={lang === 'hi' ? 'एआई सहायक' : 'AI Copilot'}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="text-white">
                 <path
                   d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z"
                   fill="currentColor"
                 />
               </svg>
-              <span className={`hidden xl:inline ${lang === 'hi' ? 'font-devanagari' : ''}`}>
+              <span className={`hidden sm:inline ${lang === 'hi' ? 'font-devanagari' : ''}`}>
                 {lang === 'hi' ? 'एआई सहायक' : 'AI Copilot'}
               </span>
             </button>
 
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={onRefresh}
-              disabled={refreshing}
-              title={t(lang, 'refresh')}
-              aria-label={t(lang, 'refresh')}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span className={`hidden lg:inline ${lang === 'hi' ? 'font-devanagari' : ''}`}>
-                {refreshing ? t(lang, 'refreshing') : t(lang, 'refresh')}
-              </span>
-            </button>
+            {onOpenTour && (
+              <button
+                type="button"
+                className="btn"
+                onClick={onOpenTour}
+                data-tour="tutorial"
+                title={lang === 'hi' ? 'ट्यूटोरियल: हर सुविधा चरण-दर-चरण' : 'Tutorial: every feature, step by step'}
+                aria-label={lang === 'hi' ? 'ट्यूटोरियल' : 'Tutorial'}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5v-13zM13 4h5.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H13V4z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+                </svg>
+                <span className={`hidden xl:inline ${lang === 'hi' ? 'font-devanagari' : ''}`}>{lang === 'hi' ? 'ट्यूटोरियल' : 'Tutorial'}</span>
+              </button>
+            )}
 
             <button
               type="button"
               className="btn"
+              data-tour="system"
               onClick={onOpenSystem}
               title={t(lang, 'howItWorks')}
               aria-label={t(lang, 'howItWorks')}
@@ -298,6 +328,21 @@ export function Masthead({
                 <path d="M12 10.6v6M12 7.6h.01" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
               </svg>
             </button>
+
+            {user && (
+              <div className="flex items-center gap-2 border-l border-ink-700 pl-2" data-tour="account">
+                <div className={`hidden text-right leading-tight lg:block ${lang === 'hi' ? 'font-devanagari' : ''}`}>
+                  <div className="max-w-[180px] truncate text-[12.5px] font-bold text-chakra-500">{user.area}</div>
+                  <div className="text-[10.5px] text-ink-500">
+                    {user.roleLabel}
+                    {user.demo ? (lang === 'hi' ? ' · डेमो' : ' · demo') : ''}
+                  </div>
+                </div>
+                <button type="button" className="btn px-2.5 text-[12px]" onClick={onLogout} title={lang === 'hi' ? 'बाहर निकलें' : 'Sign out'}>
+                  {lang === 'hi' ? 'बाहर निकलें' : 'Sign out'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -345,7 +390,7 @@ export function AlertTicker({ lang, worst = [], summary }) {
   );
 
   return (
-    <div className="relative z-10 flex shrink-0 items-stretch bg-gradient-to-r from-saffron-500 to-saffron-400 text-white shadow-sm">
+    <div data-tour="ticker" className="relative z-10 flex shrink-0 items-stretch bg-gradient-to-r from-saffron-500 to-saffron-400 text-white shadow-sm">
       <div className="flex shrink-0 items-center gap-2 bg-chakra-500 px-3 py-1.5">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-saffron-400" />
         <span className={`text-[10px] font-bold uppercase tracking-[0.14em] text-white ${lang === 'hi' ? 'font-devanagari' : ''}`}>
@@ -397,7 +442,7 @@ export function Footer({ lang, system, meta }) {
     : '';
 
   return (
-    <footer className="relative z-10 shrink-0 border-t-4 border-saffron-500 bg-chakra-500 px-4 py-2 text-white lg:px-5">
+    <footer data-tour="footer" className="relative z-10 shrink-0 border-t-4 border-saffron-500 bg-chakra-500 px-4 py-2 text-white lg:px-5">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
         {/* basis-full below lg: sharing a row with the shrink-0 run stats
             squeezed this paragraph to one word per line on a phone */}

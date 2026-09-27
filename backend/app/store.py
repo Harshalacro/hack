@@ -211,6 +211,57 @@ def score_history(location_id: str, limit: int = 48) -> list[dict]:
     return [dict(r) for r in reversed(rows)]
 
 
+def tier_before(location_id: str, run_id: int) -> dict | None:
+    """
+    The location's row from the last good run before `run_id`: the message a CAP
+    Update references, or the warning an All Clear closes.
+    """
+    with db() as conn:
+        row = conn.execute(
+            "SELECT ls.run_id, ls.computed_at, ls.tier FROM location_state ls "
+            "JOIN runs r ON r.id = ls.run_id "
+            "WHERE ls.location_id=? AND ls.run_id<? AND r.status IN ('ok','partial') "
+            "ORDER BY ls.run_id DESC LIMIT 1",
+            (location_id, run_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def tiers_as_of(when_iso: str | None, before_run: int) -> tuple[int | None, dict[str, dict]]:
+    """
+    Every location's tier and score in the last good run started at or before
+    `when_iso` (or simply the run before `before_run` when no time is given) -
+    the baseline for "what changed since you last looked".
+    """
+    with db() as conn:
+        if when_iso:
+            run = conn.execute(
+                "SELECT id FROM runs WHERE status IN ('ok','partial') AND started_at<=? AND id<? ORDER BY id DESC LIMIT 1",
+                (when_iso, before_run),
+            ).fetchone()
+        else:
+            run = conn.execute(
+                "SELECT id FROM runs WHERE status IN ('ok','partial') AND id<? ORDER BY id DESC LIMIT 1",
+                (before_run,),
+            ).fetchone()
+        if not run:
+            return None, {}
+        rows = conn.execute(
+            "SELECT location_id, tier, score FROM location_state WHERE run_id=?", (run["id"],)
+        ).fetchall()
+    return run["id"], {r["location_id"]: {"tier": r["tier"], "score": r["score"]} for r in rows}
+
+
+def computed_at(location_id: str, run_id: int) -> str | None:
+    """When a run stored this location. CAP `sent` must match across Alert and Update."""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT computed_at FROM location_state WHERE location_id=? AND run_id=?",
+            (location_id, run_id),
+        ).fetchone()
+    return row["computed_at"] if row else None
+
+
 # ------------------------------------------------------------- observations
 
 

@@ -109,6 +109,7 @@ GAUGE_RADIUS_KM = 35.0     # a gauge further than this is not "the river beside 
 SERIES_TTL_S = 600
 
 FLOOD_ALERT_WORDS = ("flood", "rain", "cyclone", "cloudburst", "landslide", "inundation", "surge")
+CAP_CERTAINTY = ("observed", "likely", "possible", "unlikely", "unknown")
 
 
 def _haversine(a_lat: float, a_lon: float, b_lat: float, b_lon: float) -> float:
@@ -612,12 +613,18 @@ def _normalise_alert(a: dict) -> dict | None:
         area = 0.0
     kind = str(a.get("disaster_type") or "")
     colour = str(a.get("severity_color") or "").lower()
+    # SACHET's severity_level carries the CAP certainty for IMD alerts ("Likely")
+    # but the river trend for CWC flood alerts ("rising"); keep them apart.
+    level = str(a.get("severity_level") or "").strip()
+    certainty = level.title() if level.lower() in CAP_CERTAINTY else None
+    trend = level.lower() if level.lower() in ("rising", "falling", "steady") else None
     return {
         "id": str(a.get("identifier")),
         "source": a.get("alert_source") or "NDMA SACHET",
         "type": kind,
         "severity": a.get("severity"),
-        "certainty": a.get("severity_level"),
+        "certainty": certainty,
+        "trend": trend,
         "colour": colour,
         "area": a.get("area_description") or "",
         "message": a.get("warning_message") or "",

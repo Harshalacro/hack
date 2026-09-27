@@ -190,3 +190,159 @@ def network_status() -> dict:
             "inferred from gauge danger levels (m above MSL), which fall downstream."
         ),
     }
+
+
+# ------------------------------------------------------ downstream propagation
+
+# A flood wave on a large Indian river typically travels 2.5-7 km/h (roughly
+# 0.7-2 m/s); the spread is wide because reach slope, channel shape, embankment
+# breaches and dam releases all change it. The range is reported, not a point.
+CELERITY_KMH = (7.0, 4.0, 2.5)  # fast, typical, slow -> p10, p50, p90 arrival
+TOWN_SNAP_KM = 15.0
+LOCAL_GAUGE_KM = 5.0  # a gauge this close is the town's own gauge, not upstream
+MAX_UPSTREAM_KM = 600.0
+LONG_REACH_KM = 250.0
+
+_placed_cache: dict = {"key": None, "parts": []}
+
+
+def _placed_parts() -> list[dict]:
+    """
+    River parts oriented upstream -> downstream with their gauges' chainage in km.
+    Geometry and danger marks are static, so this is computed once per catalogue.
+    """
+    key = len(official.catalog)
+    if _placed_cache["key"] == key:
+        return _placed_cache["parts"]
+    rivers = _rivers()
+    assigned: dict[tuple[int, int], list[dict]] = {}
+    for code, g in official.catalog.items():
+        if g.get("lat") is None or g.get("lon") is None:
+            continue
+        pt = Point(g["lon"], g["lat"])
+        best, best_d = None, GAUGE_SNAP_KM / KM_PER_DEG
+        for ri, r in enumerate(rivers):
+            for pi, part in enumerate(r["parts"]):
+                d = part.distance(pt)
+                if d < best_d:
+                    best, best_d = (ri, pi), d
+        if best:
+            part = rivers[best[0]]["parts"][best[1]]
+            assigned.setdefault(best, []).append({"code": code, "ch": part.project(pt), "danger": g.get("danger_level")})
+
+    parts = []
+    for (ri, pi), gs in assigned.items():
+        line = rivers[ri]["parts"][pi]
+        datum = [(x["ch"], x["danger"]) for x in gs if x.get("danger")]
+        if len(datum) < 2:
+            continue  # direction unknown: never guess which way a wave travels
+        n = len(datum)
+        mx = sum(c for c, _ in datum) / n
+        my = sum(v for _, v in datum) / n
+        if sum((c - mx) * (v - my) for c, v in datum) > 0:
+            line = LineString(list(line.coords)[::-1])
+            for x in gs:
+                x["ch"] = line.length - x["ch"]
+        parts.append(
+            {
+                "river": rivers[ri]["name"],
+                "river_hi": rivers[ri]["name_hi"],
+                "line": line,
+                "gauges": sorted(({"code": x["code"], "ch_km": x["ch"] * KM_PER_DEG} for x in gs), key=lambda x: x["ch_km"]),
+            }
+        )
+    _placed_cache.update(key=key, parts=parts)
+    return parts
+
+
+def upstream_threats(lat: float, lon: float, limit: int = 5) -> list[dict]:
+    """
+    Gauges upstream of a place on the same river that are above warning, at
+    danger, or rising close to danger - with when their water could arrive and
+    how much to trust that. Empty when the place is not on a monitored river.
+    """
+    pt = Point(lon, lat)
+    out = []
+    for part in _placed_parts():
+        off_km = part["line"].distance(pt) * KM_PER_DEG
+        if off_km > TOWN_SNAP_KM:
+            continue
+        town_km = part["line"].project(pt) * KM_PER_DEG
+        for g in part["gauges"]:
+            dist = town_km - g["ch_km"]
+            if dist < LOCAL_GAUGE_KM or dist > MAX_UPSTREAM_KM:
+                continue
+            st = official.station_status(g["code"])
+            above = st.get("above_danger_m")
+            if above is not None and abs(above) > 25:
+                continue  # datum mismatch in the source, not a reading
+            trend = (st.get("trend") or "").upper()
+            rising_near = trend == "RISING" and above is not None and above > -1.0
+            if st["status"] not in ("DANGER", "WARNING") and not rising_near:
+                continue
+            reasons = []
+            if trend == "FALLING":
+                reasons.append("the gauge is falling: the peak may already be passing")
+            if dist > LONG_REACH_KM:
+                reasons.append(f"{dist:.0f} km is a long reach: the wave flattens and tributaries or dams can change it")
+            if off_km > GAUGE_SNAP_KM:
+                reasons.append(f"the town sits {off_km:.0f} km from the mapped river line")
+            if st["status"] != "DANGER" and not rising_near:
+                reasons.append("the gauge is above warning, not danger")
+            evidence = "weak" if trend == "FALLING" or dist > LONG_REACH_KM or len(reasons) >= 2 else "moderate" if reasons else "strong"
+            out.append(
+                {
+                    "code": g["code"],
+                    "name": st.get("name"),
+                    "state": st.get("state"),
+                    "river": part["river"],
+                    "river_hi": part["river_hi"],
+                    "status": st["status"],
+                    "trend": trend or None,
+                    "level_m": st.get("level_m"),
+                    "above_danger_m": above,
+                    "distance_km": round(dist),
+                    "eta_h": {k: round(dist / v) for k, v in zip(("p10", "p50", "p90"), CELERITY_KMH)},
+                    "evidence": evidence,
+                    "evidence_reasons": reasons,
+                }
+            )
+    # One entry per gauge (a river split into parts can see it twice), soonest first.
+    seen, uniq = set(), []
+    for t in sorted(out, key=lambda t: (t["eta_h"]["p50"], -STATUS_RANK[t["status"]])):
+        if t["code"] not in seen:
+            seen.add(t["code"])
+            uniq.append(t)
+    return uniq[:limit]
+
+
+_path_cache: dict = {"ts": 0.0, "rows": []}
+# Rebuilt after every 15-minute gauge sweep (main._gauge_loop); the TTL is only
+# a fallback if a sweep fails.
+PATH_TTL_S = 1200
+
+
+def towns_in_path() -> list[dict]:
+    """Every monitored town with a flood wave coming down its river, soonest first."""
+    import time
+
+    from .engine import LOCATIONS
+
+    if time.time() - _path_cache["ts"] < PATH_TTL_S:
+        return _path_cache["rows"]
+    rows = []
+    for loc in LOCATIONS:
+        threats = upstream_threats(loc["lat"], loc["lon"], limit=3)
+        if threats:
+            rows.append(
+                {
+                    "id": loc["id"],
+                    "name": loc["name"],
+                    "name_hi": loc.get("name_hi"),
+                    "state": loc["state"],
+                    "threats": threats,
+                }
+            )
+    rows.sort(key=lambda r: r["threats"][0]["eta_h"]["p50"])
+    _path_cache.update(ts=time.time(), rows=rows)
+    return rows

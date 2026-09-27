@@ -203,9 +203,14 @@ async def answer(question: str, history: Sequence[dict], snapshot, lang: str | N
 def offline_advisory(a: dict) -> dict:
     loc, risk, obs = a["location"], a["risk"], a["observations"]
     tier = risk["tier"]["key"]
+    from .safety import advice
+
+    steps = advice(loc["id"], tier, "place")
+    routes = steps["routes"]
     out = {}
     for lang in ("en", "hi"):
         name = loc.get("name_hi") if lang == "hi" and loc.get("name_hi") else loc["name"]
+        residents = "\n".join(f"• {x}" for x in steps[lang])
         drivers = "; ".join(
             b for b in a["explanation"]["bullets_hi" if lang == "hi" else "bullets_en"]
         )
@@ -217,22 +222,22 @@ def offline_advisory(a: dict) -> dict:
                 f"{name} में वर्तमान बाढ़ जोखिम {risk['score']:.0f}/100 ({TIER_WORD['hi'][tier]}) है। {meaning}\n"
                 f"कारण: {drivers}।\n"
                 f"प्रशासन हेतु: {action}\n"
-                f"नागरिक: निचले इलाकों व नदी किनारों से दूर रहें, जलभराव वाली सड़कों पर वाहन न चलाएँ, "
-                f"आवश्यक दस्तावेज़ व दवाइयाँ जलरोधी थैले में रखें।\n"
+                f"नागरिकों के लिए:\n{residents}\n"
                 f"हेल्पलाइन: {HELPLINES['hi']}"
             )
-            sms = f"जलदृष्टि: {name} बाढ़ जोखिम {TIER_WORD['hi'][tier]} ({risk['score']:.0f}/100)। निचले इलाकों से दूर रहें। आपात: 112/1078"
+            avoid = f" {routes[0]} से बचें।" if routes else " जलभराव वाली सड़कों से बचें।"
+            sms = f"जलदृष्टि: {name} बाढ़ जोखिम {TIER_WORD['hi'][tier]}।{avoid} उबला पानी पिएँ। आपात 112/1078"
         else:
             title = f"Flood risk advisory — {name} ({TIER_WORD['en'][tier]})"
             body = (
                 f"Current flood risk in {name} is {risk['score']:.0f}/100 ({TIER_WORD['en'][tier]}). {meaning}\n"
                 f"Why: {drivers}.\n"
                 f"For authorities: {action}\n"
-                f"For residents: keep away from low-lying areas and riverbanks, do not drive through "
-                f"flooded roads, keep documents and medicines in a waterproof bag.\n"
+                f"For residents:\n{residents}\n"
                 f"Helplines: {HELPLINES['en']}"
             )
-            sms = f"JalDrishti: {name} flood risk {TIER_WORD['en'][tier]} ({risk['score']:.0f}/100). Avoid low-lying areas. Emergency: 112/1078"
+            avoid = f" Avoid {routes[0]}." if routes else " Avoid flooded roads."
+            sms = f"JalDrishti: {name} flood risk {TIER_WORD['en'][tier]}.{avoid} Drink boiled water. Emergency 112/1078"
         out[lang] = {"title": title, "body": body, "sms": sms[:160]}
     return out
 

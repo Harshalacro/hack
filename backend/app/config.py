@@ -97,6 +97,41 @@ CWC_RELAY_TOKEN = os.getenv("JALDRISHTI_CWC_RELAY_TOKEN", "").strip()
 # persistent disk in production; the default sits beside the code.
 CACHE_DIR = Path(os.getenv("JALDRISHTI_CACHE_DIR", BASE_DIR.parent / ".cache"))
 
+# ---------------------------------------------------------------- accounts
+
+# Password for the seeded central/state/district accounts. Change it in any
+# deployment that is not a demo.
+SEED_PASSWORD = os.getenv("JALDRISHTI_SEED_PASSWORD", "jaldrishti@2026")
+# One-click sign-in by role, without a password, for judges and demos.
+DEMO_LOGIN = os.getenv("JALDRISHTI_DEMO_LOGIN", "1") == "1"
+TOKEN_HOURS = float(os.getenv("JALDRISHTI_TOKEN_HOURS", "12"))
+
+# ---------------------------------------------------------- notifications
+
+# Outbound events (new alerts, escalations, flood waves, daily brief, all clear)
+# are posted as JSON to this webhook - e.g. a viaSocket flow with a Webhook
+# trigger, which then sends email / WhatsApp / SMS / calls. Empty = off.
+NOTIFY_WEBHOOK_URL = os.getenv("JALDRISHTI_NOTIFY_WEBHOOK", "").strip()
+# Shared secret the automation platform must send (header X-JalDrishti-Secret)
+# to call the inbound endpoint, e.g. for the WhatsApp question bot.
+NOTIFY_INBOUND_SECRET = os.getenv("JALDRISHTI_NOTIFY_SECRET", "").strip()
+# Hour (IST, 0-23) the daily brief goes out.
+DAILY_BRIEF_HOUR = int(os.getenv("JALDRISHTI_DAILY_BRIEF_HOUR", "8"))
+
+# ------------------------------------------------------------------- CAP 1.2
+
+# Warnings are also published as OASIS CAP 1.2, the format NDMA SACHET, IMD and
+# CWC exchange. This is a research prototype, so messages are never "Actual":
+# only Exercise (the default) or Test, which CAP consumers do not relay to the public.
+CAP_STATUS = os.getenv("JALDRISHTI_CAP_STATUS", "Exercise").strip().title()
+if CAP_STATUS not in ("Exercise", "Test"):
+    CAP_STATUS = "Exercise"
+CAP_SENDER = os.getenv("JALDRISHTI_CAP_SENDER", "jaldrishti.prototype").strip()
+# Public dashboard URL, used for each alert's <web> link. Optional.
+PUBLIC_WEB_URL = os.getenv("JALDRISHTI_PUBLIC_WEB_URL", "").strip().rstrip("/")
+# Radius of the warning area around each monitored place.
+CAP_AREA_RADIUS_KM = float(os.getenv("JALDRISHTI_CAP_RADIUS_KM", "10"))
+
 # ---------------------------------------------------------------- data sources
 
 OPEN_METEO_FORECAST = "https://api.open-meteo.com/v1/forecast"

@@ -58,6 +58,9 @@ EVENTS: list[dict] = _load_events()
 LOCATIONS_BY_ID: dict[str, dict] = {l["id"]: l for l in LOCATIONS}
 ENRICHED = (DATA_DIR / "locations.enriched.json").exists()
 REPLAY_CACHE = CACHE_DIR / "archive"
+# Raw weather + river series from the last successful fetch, so a restarted server
+# whose weather source is rate limited can still re-score on live gauges.
+INPUTS_CACHE = CACHE_DIR / "last_inputs.json.gz"
 
 
 # ------------------------------------------------------------- in-memory state
@@ -83,6 +86,10 @@ class Snapshot:
         self.trigger = trigger
         self.degraded = degraded
         self.replay_date: str | None = None
+        # When the weather inputs behind this run were fetched (older than
+        # computed_at when the weather source was unavailable and gauges drove it).
+        self.weather_as_of: datetime = started
+        self.weather_mode: str = "live"  # live | cached | official_only
 
     @property
     def tier_counts(self) -> dict[str, int]:
@@ -103,6 +110,7 @@ class Engine:
         # Raw inputs from the last refresh, kept so the what-if simulator can
         # perturb the real series instead of inventing a synthetic scenario.
         self.raw: dict[str, tuple[dict, dict]] = {}
+        self.raw_as_of: datetime | None = None
         self.owm: dict[str, float] = {}
         self._replay_cache: dict[str, Snapshot] = {}
 
@@ -263,8 +271,24 @@ class Engine:
                 except Exception as exc:
                     degraded.append(f"cwc readings: {str(exc)[:80]}")
 
+                weather_mode, weather_as_of = "live", started_wall
                 if isinstance(weather, BaseException):
-                    raise RuntimeError(f"weather source failed: {weather}")
+                    if not self.raw:
+                        self._load_inputs()
+                    if self.raw:
+                        # Weather source down or over quota: re-score on the last good
+                        # weather series (its forecast part now stands in for the hours
+                        # since) with live gauges and alerts on top.
+                        weather_mode, weather_as_of = "cached", self.raw_as_of or started_wall
+                        degraded.append(f"weather from {weather_as_of:%d %b %H:%M} UTC: {str(weather)[:80]}")
+                        weather = {k: v[0] for k, v in self.raw.items()}
+                        if isinstance(flood, BaseException):
+                            flood = {k: v[1] for k, v in self.raw.items()}
+                    elif self.snapshot is not None:
+                        snap = self._official_only(run_id, started_wall, t0, trigger, str(weather))
+                        return snap
+                    else:
+                        raise RuntimeError(f"weather source failed: {weather}")
                 if isinstance(flood, BaseException):
                     degraded.append("open_meteo_flood")
                     flood = {}
@@ -278,6 +302,9 @@ class Engine:
                     f = flood.get(loc["id"], {})
                     self.raw[loc["id"]] = (w, f)
                     assessments.append(self.assess(loc, w, f, owm_next24=self.owm.get(loc["id"]), fusion=True))
+                if weather_mode == "live":
+                    self.raw_as_of = started_wall
+                    self._save_inputs()
 
                 # Without a trained Isolation Forest, anomaly detection falls back to
                 # how far each location sits outside today's national spread.
@@ -288,6 +315,7 @@ class Engine:
 
                 duration_ms = int((time.perf_counter() - t0) * 1000)
                 snap = Snapshot(run_id, assessments, started_wall, duration_ms, trigger, degraded)
+                snap.weather_as_of, snap.weather_mode = weather_as_of, weather_mode
 
                 store.save_assessments(run_id, assessments)
                 store.save_observations(run_id, _observation_rows(assessments))
@@ -308,6 +336,62 @@ class Engine:
                 raise
             finally:
                 self.refreshing = False
+
+    def _save_inputs(self) -> None:
+        import gzip
+
+        try:
+            INPUTS_CACHE.parent.mkdir(parents=True, exist_ok=True)
+            body = {"as_of": self.raw_as_of.isoformat(), "raw": {k: [w, f] for k, (w, f) in self.raw.items()}}
+            with gzip.open(INPUTS_CACHE, "wt", encoding="utf-8") as fh:
+                json.dump(body, fh)
+        except Exception as exc:  # a cache, never a reason to fail a refresh
+            import logging
+
+            logging.getLogger("jaldrishti.engine").warning("could not save last inputs: %s", exc)
+
+    def _load_inputs(self) -> None:
+        import gzip
+
+        try:
+            with gzip.open(INPUTS_CACHE, "rt", encoding="utf-8") as fh:
+                body = json.load(fh)
+        except (OSError, ValueError):
+            return
+        self.raw = {k: (v[0], v[1]) for k, v in body.get("raw", {}).items()}
+        self.raw_as_of = datetime.fromisoformat(body["as_of"]) if body.get("as_of") else None
+
+    def _official_only(self, run_id: int, started_wall: datetime, t0: float, trigger: str, why: str) -> Snapshot:
+        """
+        No weather at all (source over quota and no cached series): keep the last
+        run's modelled scores and re-apply the live official record - CWC gauges
+        and SACHET alerts - on top, so river-driven changes still show up.
+        """
+        base = self.snapshot
+        assessments = []
+        for a in base.assessments:
+            a = copy.deepcopy(a)
+            loc = a["location"]
+            block = official.fuse(loc["lat"], loc["lon"])
+            model = a["risk"].get("model_score", a["risk"]["score"])
+            score = max(model, block["floor"]) if block else model
+            tier = tier_for_score(score)
+            a["official"] = block
+            a["risk"]["score"] = score
+            a["risk"]["official_floor_applied"] = bool(block and block["floor"] > model)
+            a["risk"]["tier"] = {k: tier[k] for k in ("key", "label_en", "label_hi", "colour")}
+            a["actions"] = explain.response_actions(tier)
+            assessments.append(a)
+        as_of = getattr(base, "weather_as_of", base.computed_at)
+        degraded = [f"weather from {as_of:%d %b %H:%M} UTC, gauges and alerts live: {why[:80]}"]
+        duration_ms = int((time.perf_counter() - t0) * 1000)
+        snap = Snapshot(run_id, assessments, started_wall, duration_ms, trigger, degraded)
+        snap.weather_as_of, snap.weather_mode = as_of, "official_only"
+        store.save_assessments(run_id, assessments)
+        store.finish_run(run_id, "partial", len(assessments), duration_ms, degraded[0][:400])
+        self.snapshot = snap
+        self.last_error = None
+        return snap
 
     def _expected_cells(self) -> dict[str, tuple[float, float]]:
         return {
@@ -436,6 +520,33 @@ class Engine:
         if len(self._replay_cache) >= 12:
             self._replay_cache.pop(next(iter(self._replay_cache)))
         self._replay_cache[key] = snap
+        return snap
+
+    def restore_last(self) -> Snapshot | None:
+        """
+        Serve the last stored run while the first live pass is in flight or failing
+        (e.g. Open-Meteo rate limiting a restarted server). The masthead shows its
+        age, so stale data is visible as stale rather than hidden behind a spinner.
+        """
+        run = store.latest_run()
+        if run is None:
+            return None
+        assessments = store.load_assessments(run["id"])
+        if not assessments:
+            return None
+        started = datetime.fromisoformat(run["started_at"])
+        snap = Snapshot(run["id"], assessments, started, run.get("duration_ms") or 0, "restored", ["restored from last stored run"])
+        # A partial run carries its weather age in its note; otherwise the run time is it.
+        note = run.get("notes") or ""
+        if "weather from" in note:
+            try:
+                stamp = note.split("weather from ", 1)[1][:12]
+                snap.weather_as_of = datetime.strptime(f"{started.year} {stamp}", "%Y %d %b %H:%M").replace(tzinfo=timezone.utc)
+            except ValueError:
+                pass
+        self._load_inputs()
+        if self.snapshot is None:
+            self.snapshot = snap
         return snap
 
     async def load_climatology(self) -> int:

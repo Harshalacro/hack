@@ -45,7 +45,7 @@ export default function NationalPanel({
     // crush the watchlist header when a tier filter was on.
     <div className="flex flex-col gap-3 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-1 scrollbar-thin">
       {/* ------------------------------------------------ national situation */}
-      <section className="panel shrink-0">
+      <section data-tour="ov-national" className="panel shrink-0">
         <SectionHead
           title={t(lang, 'nationalSituation')}
           lang={lang}
@@ -108,7 +108,7 @@ export default function NationalPanel({
       </section>
 
       {/* ------------------------------------------------------- watchlist */}
-      <section className="panel flex shrink-0 flex-col">
+      <section data-tour="ov-watchlist" className="panel flex shrink-0 flex-col">
         <SectionHead
           title={tierFilter
             ? `${lang === 'hi' ? TIER_LABELS[tierFilter].hi : TIER_LABELS[tierFilter].en} · ${watchlist.length}`
@@ -182,7 +182,7 @@ export default function NationalPanel({
       </section>
 
       {/* -------------------------------------------- state / basin roll-up */}
-      <section className="panel flex shrink-0 flex-col">
+      <section data-tour="ov-rollup" className="panel flex shrink-0 flex-col">
         <div className="panel-head">
           <div className="flex items-center rounded-md border border-ink-700/70 bg-ink-850/70 p-0.5">
             {[

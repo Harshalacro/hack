@@ -14,7 +14,7 @@ const ROWS = [
       'Every place carries an IMD-aligned warning level (Green, Yellow, Orange, Red) with the NDMA action for that level, a stated confidence, and how long the warning holds: a 72 h town trajectory, a 48 h street-ponding timeline, and hours-to-danger for each river gauge',
       'हर स्थान पर IMD अनुरूप चेतावनी स्तर (हरा, पीला, नारंगी, लाल), NDMA कार्रवाई, विश्वसनीयता तथा अग्रिम समय: 72 घंटे का प्रक्षेपवक्र, 48 घंटे की जलभराव समयरेखा व खतरे तक शेष घंटे',
     ],
-    link: ['/', 'Live warning levels'],
+    link: ['/map', 'Live warning levels'],
   },
   {
     req: ['Multi-source data integration', 'बहु-स्रोत आँकड़ा एकीकरण'],
@@ -33,6 +33,14 @@ const ROWS = [
     link: ['/hotspots/mumbai', 'Street-level hotspots'],
   },
   {
+    req: ['Flood propagation between connected places', 'जुड़े स्थानों के बीच बाढ़ का फैलाव'],
+    how: [
+      'City grid as a flow graph: each hour cells pass water they cannot hold to lower neighbours (slope-weighted), so flooding spreads cell to cell; a no-inflow counterfactual separates cells flooded by their own rain from cells flooded by water from upslope; a 20-run ensemble (rain amount and timing, drain capacity, ±1.5 m terrain) gives flood probability, arrival-time range and an evidence rating; a "likely affected next" list with the path water takes. Between towns, river flood waves are traced from upstream CWC gauges with arrival ranges from wave speed',
+      'शहर ग्रिड एक प्रवाह नेटवर्क: हर घंटे कोशिकाएँ अतिरिक्त पानी ढलान से निचली पड़ोसी कोशिकाओं में भेजती हैं, जिससे बाढ़ फैलती है; बिना-अंतर्वाह तुलना से पता चलता है कि बाढ़ अपनी वर्षा से है या ऊपर से आए पानी से; 20 रन का समूह बाढ़ संभावना, पहुँच समय सीमा व साक्ष्य स्तर देता है; "आगे प्रभावित" सूची पानी के रास्ते सहित। शहरों के बीच, ऊपरी CWC गेज से नदी बाढ़ लहर व पहुँच समय',
+    ],
+    link: ['/hotspots/mumbai', 'Spread & arrival'],
+  },
+  {
     req: ['Drivers of flood risk and scenarios', 'बाढ़ जोखिम के कारक व परिदृश्य'],
     how: [
       'Ten named factors with weights and point contributions; what-if simulator re-scores real inputs; design-storm and drain-capacity controls on the hotspot map',
@@ -46,7 +54,7 @@ const ROWS = [
       '112 towns in all 36 states/UTs scored against IMD colour tiers; live CWC gauges above danger and NDMA/IMD alerts raise scores; anomaly detection flags unusual combinations',
       'सभी 36 राज्यों/केंद्र शासित प्रदेशों में 112 शहर IMD रंग स्तरों पर; CWC गेज व आधिकारिक चेतावनियाँ स्कोर बढ़ाती हैं; असामान्यता पहचान',
     ],
-    link: ['/', 'Overview'],
+    link: ['/map', 'Overview'],
   },
   {
     req: ['Forecasts: how risk evolves', 'पूर्वानुमान: जोखिम कैसे बदलेगा'],
@@ -67,8 +75,8 @@ const ROWS = [
   {
     req: ['Confidence and uncertainty', 'विश्वसनीयता व अनिश्चितता'],
     how: [
-      'Confidence badge with written reasons (ensemble spread, baseline, gauge availability, model agreement); uncertainty bands on every forecast; hotspot ponding re-run at 60 % and 140 % rain',
-      'लिखित कारणों सहित विश्वसनीयता; हर पूर्वानुमान पर अनिश्चितता पट्टी; वर्षा 60% व 140% पर पुनः गणना',
+      'Confidence badge with written reasons (ensemble spread, baseline, gauge availability, model agreement); uncertainty bands on every forecast; hotspot 20-run ensemble with per-cell flood probability, 10–90 % ponding and arrival ranges, and weak-evidence cells drawn dashed',
+      'लिखित कारणों सहित विश्वसनीयता; हर पूर्वानुमान पर अनिश्चितता पट्टी; हॉटस्पॉट पर 20 रन का समूह — हर कोशिका की बाढ़ संभावना, 10–90% सीमा, और कमज़ोर साक्ष्य धराशायी',
     ],
     link: ['/location/patna', 'Confidence detail'],
   },
@@ -157,7 +165,7 @@ export default function AboutPage({ lang }) {
         </p>
       </div>
 
-      <div className="panel overflow-x-auto">
+      <div className="panel overflow-x-auto" data-tour="ab-table">
         <table className="w-full text-left text-[12.5px]">
           <thead className="bg-chakra-500 text-[11px] uppercase tracking-wider text-white">
             <tr>

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { api } from '../lib/api';
+import { api, capLinks } from '../lib/api';
 import { compactPopulation, cumecs, inNumber, longDateIST, mm, ordinal, pct, stateName, tierColour } from '../lib/format';
 import { pick, t } from '../lib/i18n';
 import { href } from '../lib/router';
 import { AdvisoryGenerator, AIAssessmentCard, WhatIfSimulator } from '../components/AIPanels';
 import { RiverChart, ScoreHistoryChart, TrajectoryChart } from '../components/Charts';
 import FactorBars from '../components/FactorBars';
+import { UpstreamCard } from '../components/FloodWave';
 import { OfficialCard } from '../components/Official';
 import { ConfidenceChip, DataRow, DirectionBadge, SectionHead, Spinner, TierChip } from '../components/Primitives';
 import ReplayPanel from '../components/ReplayPanel';
@@ -24,7 +25,7 @@ import RiskGauge from '../components/RiskGauge';
 
 const hi = (lang) => (lang === 'hi' ? 'font-devanagari' : '');
 
-export default function LocationPage({ lang, id, replayDate, onOpenStation, locationsById }) {
+export default function LocationPage({ lang, id, replayDate, onOpenStation, locationsById, admin = true }) {
   const [detail, setDetail] = useState(null);
   const [timeline, setTimeline] = useState(null);
   const [error, setError] = useState(null);
@@ -61,7 +62,7 @@ export default function LocationPage({ lang, id, replayDate, onOpenStation, loca
       <div className="flex flex-wrap items-end justify-between gap-3 border-b-2 border-saffron-500 pb-3">
         <div>
           <nav className={`text-[11.5px] text-ink-500 ${hi(lang)}`}>
-            <a href={href('/')} className="text-saffron-300 hover:underline">{t(lang, 'india')}</a>
+            <a href={href('/map')} className="text-saffron-300 hover:underline">{t(lang, 'india')}</a>
             {' / '}
             <a href={href(`/state/${loc.state}`)} className="text-saffron-300 hover:underline">{stateName(loc.state, lang)}</a>
             {' / '}
@@ -87,7 +88,7 @@ export default function LocationPage({ lang, id, replayDate, onOpenStation, loca
       <div className="grid gap-4 xl:grid-cols-3">
         {/* ============================================================ col 1 */}
         <div className="space-y-4">
-          <section className="panel overflow-hidden">
+          <section data-tour="loc-risk" className="panel overflow-hidden">
             <div className="h-1.5" style={{ background: colour }} />
             <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3">
               <TierChip tier={risk.tier.key} lang={lang} showAction size="lg" />
@@ -120,9 +121,13 @@ export default function LocationPage({ lang, id, replayDate, onOpenStation, loca
             )}
           </section>
 
-          <OfficialCard lang={lang} official={a.official} onOpenStation={onOpenStation} replay={!!replayDate} />
+          <div data-tour="loc-official">
+            <OfficialCard lang={lang} official={a.official} onOpenStation={onOpenStation} replay={!!replayDate} />
+          </div>
 
-          <section className="panel">
+          {!replayDate && <UpstreamCard lang={lang} threats={detail.upstream ?? []} onOpenStation={onOpenStation} />}
+
+          <section data-tour="loc-why" className="panel">
             <SectionHead title={t(lang, 'whyThisScore')} lang={lang} />
             <div className="p-4">
               <p className={`text-[13px] leading-relaxed text-ink-100 ${hi(lang)}`}>{pick(lang, a.explanation, 'narrative')}</p>
@@ -130,24 +135,29 @@ export default function LocationPage({ lang, id, replayDate, onOpenStation, loca
             </div>
           </section>
 
-          <section className="panel overflow-hidden" style={{ borderColor: `${colour}55` }}>
+          <section data-tour="loc-actions" className="panel overflow-hidden" style={{ borderColor: `${colour}55` }}>
             <SectionHead title={t(lang, 'responseActions')} lang={lang} />
             <div className="space-y-2 p-4">
               <p className={`text-[12px] text-ink-300 ${hi(lang)}`}><b className="text-chakra-500">IMD · </b>{pick(lang, a.actions, 'imd_meaning')}</p>
               <p className={`text-[12.5px] font-semibold ${hi(lang)}`} style={{ color: colour }}><b className="text-chakra-500">NDMA · </b>{pick(lang, a.actions, 'ndma_action')}</p>
+              {!replayDate && risk.tier.key !== 'green' && (
+                <a href={capLinks.alert(loc.id)} target="_blank" rel="noreferrer" className="inline-block pt-1 text-[11px] font-semibold text-chakra-500 underline-offset-2 hover:underline">
+                  {lang === 'hi' ? 'CAP 1.2 संदेश (XML) देखें ↗' : 'View as CAP 1.2 alert (XML) ↗'}
+                </a>
+              )}
             </div>
           </section>
         </div>
 
         {/* ============================================================ col 2 */}
         <div className="space-y-4">
-          <section className="panel">
+          <section data-tour="loc-trajectory" className="panel">
             <SectionHead title={t(lang, 'trajectory')} lang={lang} right={<span className="text-[10px] text-ink-500">{t(lang, 'uncertaintyBand')}</span>} />
             <TrajectoryChart trajectory={timeline?.trajectory ?? a.trajectory} lang={lang} height={230} />
           </section>
 
           {river.available && (
-            <section className="panel">
+            <section data-tour="loc-river" className="panel">
               <SectionHead title={t(lang, 'riverState')} lang={lang} right={<span className="font-mono text-[10px] text-ink-500">GloFAS · m³/s</span>} />
               <RiverChart river={timeline?.river ?? river} lang={lang} height={210} />
               <div className="grid grid-cols-2 gap-x-6 px-4 pb-3">
@@ -159,12 +169,12 @@ export default function LocationPage({ lang, id, replayDate, onOpenStation, loca
             </section>
           )}
 
-          <section className="panel">
+          <section data-tour="loc-factors" className="panel">
             <SectionHead title={t(lang, 'contributingFactors')} lang={lang} />
             <FactorBars factors={a.factors} lang={lang} ruleScore={risk.rule_score} />
           </section>
 
-          <section className="panel">
+          <section data-tour="loc-raw" className="panel">
             <SectionHead title={t(lang, 'rawData')} lang={lang} />
             <div className="grid grid-cols-1 gap-x-6 px-4 py-2 sm:grid-cols-2">
               <DataRow lang={lang} label={t(lang, 'rain24')} value={mm(obs.rain_24h_mm)} />
@@ -179,7 +189,7 @@ export default function LocationPage({ lang, id, replayDate, onOpenStation, loca
           </section>
 
           {detail.score_history?.length > 1 && (
-            <section className="panel">
+            <section data-tour="loc-history" className="panel">
               <SectionHead title={t(lang, 'scoreHistory')} lang={lang} />
               <ScoreHistoryChart history={detail.score_history} lang={lang} height={120} />
             </section>
@@ -188,12 +198,27 @@ export default function LocationPage({ lang, id, replayDate, onOpenStation, loca
 
         {/* ============================================================ col 3 */}
         <div className="space-y-4">
-          <AIAssessmentCard lang={lang} assessment={a} locationsById={locationsById} />
-          {!replayDate && <WhatIfSimulator lang={lang} locationId={loc.id} baselineScore={risk.score} />}
-          {!replayDate && <AdvisoryGenerator lang={lang} locationId={loc.id} />}
-          <ReplayPanel lang={lang} locationId={loc.id} events={a.history?.events ?? []} />
+          <div data-tour="loc-ai">
+            <AIAssessmentCard lang={lang} assessment={a} locationsById={locationsById} />
+          </div>
+          {/* What-if, advisory drafts and replay are control-room tools (the server refuses them for citizens). */}
+          {admin && !replayDate && (
+            <div data-tour="loc-whatif">
+              <WhatIfSimulator lang={lang} locationId={loc.id} baselineScore={risk.score} />
+            </div>
+          )}
+          {admin && !replayDate && (
+            <div data-tour="loc-advisory">
+              <AdvisoryGenerator lang={lang} locationId={loc.id} />
+            </div>
+          )}
+          {admin && (
+            <div data-tour="loc-replay">
+              <ReplayPanel lang={lang} locationId={loc.id} events={a.history?.events ?? []} />
+            </div>
+          )}
           {a.history?.events?.length > 0 && (
-            <section className="panel">
+            <section data-tour="loc-events" className="panel">
               <SectionHead title={t(lang, 'pastEvents')} lang={lang} right={<span className="text-[10px] text-ink-500">{a.history.count}</span>} />
               <ul className="divide-y divide-ink-800">
                 {a.history.events.map((e) => (

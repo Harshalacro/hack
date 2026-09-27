@@ -42,7 +42,7 @@ async def build_one(i: int, total: int, lid: str, counts: dict) -> None:
         cache.unlink()
     t = time.time()
     try:
-        static = await hotspots.build_static(lid, use_seed=False)
+        static = await hotspots.build_static(lid, use_seed=False, budget_s=None)
     except Exception as exc:
         counts["failed"] += 1
         print(f"[{i}/{total}] {lid}: FAILED {str(exc)[:120]}", flush=True)

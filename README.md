@@ -50,6 +50,44 @@ minutes later; the confidence badge tells you which state it is in.
 
 API docs are at `http://localhost:8000/docs`.
 
+### Signing in
+
+Every user sees one area. The sign-in screen has two doors: **Official (admin)** for
+control rooms and **Citizen** for residents. **Quick demo** enters any role in one
+click; officials' accounts are created on first boot, and citizens create their own.
+
+| Role | Kind | Sees | Username | Example |
+|---|---|---|---|---|
+| Central | Admin | All of India | `central` | `central` |
+| State | Admin | One state | the state name, lower-case with hyphens | `bihar`, `uttar-pradesh` |
+| District | Admin | One district | `state.district` | `bihar.patna` |
+| Citizen | Public | Their home district | the email or mobile number they registered | `9876543210` |
+
+Admins get the control-room tools: My area with ready-to-send advisories, Notifications,
+the risk map, State monitor, Time machine, what-if simulator, advisory generator and
+event replay. Citizens get **My locality** (their district's level, what to do, roads to
+avoid, the next 3 days, warnings and helplines), the street map, rivers and official
+alerts. The server enforces this: officials-only endpoints return 403 for a citizen.
+
+All seeded admin accounts use the password `jaldrishti@2026`. Set `JALDRISHTI_SEED_PASSWORD`
+before first boot to change it, `JALDRISHTI_DEMO_LOGIN=0` to turn off one-click demo
+sign-in, and `JALDRISHTI_SECRET` to fix the token signing key across restarts of a
+multi-instance deployment.
+
+After sign-in each user lands on **My area**: the area's status, automatic alerts
+with ready-to-send advisories and SMS text, what is coming next, a daily brief and
+what changed since the last visit. The detailed screens sit under **Advanced tools**,
+filtered to the user's area.
+
+Scope is enforced by the server on every data endpoint: places, the risk map,
+street-level grids, river gauges, official alerts, rivers, the flood-event
+register and time-machine presets all answer for the signed-in area only, and a
+place outside it returns 403. Gauges and official alerts carry no district, so a
+district sees those within 40 km of its town (or naming it). A river is shown to
+a state or district if one of its gauges is in the area, with its whole
+upstream-to-downstream profile, since upstream water is what arrives next. The
+CAP 1.2 feed and the health check stay public.
+
 **Deploying** (backend on Render, frontend on Vercel): see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
@@ -120,6 +158,70 @@ bars, so the prose and the chart can never disagree.
   visible rather than silently changing the numbers.
 
 ---
+
+## Response planning (Challenge 2)
+
+**Response plan** (officials only) allocates rescue teams, boats, dewatering pumps and
+barricade sets across every place at risk, and re-solves on its own whenever a new
+scoring run lands, stock changes, or units are dispatched or released
+(`app/planning.py`, `app/resources.py`, `app/travel.py`).
+
+**How a plan is made.** A mixed-integer program (SciPy / HiGHS) maximises expected
+people reached, and it can never allocate more than a depot has available:
+
+| Input | Where it comes from |
+|---|---|
+| Current severity | The live score, including the official gauge floor |
+| Future risk | The worst point on the 72 h trajectory, or a flood wave from an upstream gauge above danger at its arrival time |
+| Chance of flooding | The observed flood rate per IMD band in the back-test: Green 0.05%, Yellow 2.6%, Orange 11%, Red 34% |
+| Population / exposure | Census population; people in the flood area = 5% + 25% × score/100 |
+| Asset impact | In the 22 cities with a street grid: hospitals and schools in flood-prone 800 m cells (OpenStreetMap) count as 1,000 and 300 people-equivalents; each needs a pump, and each flood-prone underpass needs 2 barricade sets |
+| Travel time | Real road drive times from OSRM (OpenStreetMap), 14,336 depot-place pairs, cached a week; straight-line estimate as fallback, flagged |
+| Timing | A unit counts in full only if it arrives before the peak (within 12 h for a flood already under way); roads into Red areas are 1.5× slower |
+| Diminishing returns | Each place's need is split into thirds worth 100 / 70 / 40% per unit, so scarce units spread across places |
+
+**Resources.** The 16 NDRF battalion bases and their 18 teams each are public figures.
+SDRF, boat, pump and barricade counts are **demo values**, marked as such: India's
+inventory (IDRN) is open to officials only. Officials enter real counts on the
+**Resources** page, and the plan re-optimises. SDRF and district stock stays in its
+state. The island UTs are flagged as needing sea or air lift rather than trusting
+ferry routing.
+
+**Explainable.** Every order says why this place (score now → peak, people, chance of
+flooding) and why this depot (drive time + mobilisation vs the expected peak). The
+plan also shows what changed since the last plan and why, which places are still
+short and why, and where one more unit helps most (LP shadow prices).
+
+**Street level.** For a city with a street grid, **Street-level deployment** takes the
+pumps and barricades the national plan gives it and places them on 800 m cells
+(`app/city_plan.py`):
+- **Pumps** go where the ensemble expects flooding and hospitals or schools stand.
+- **Barricades** close flood-prone underpasses first, then named roads.
+- **Timing:** each placement says whether it arrives before the water.
+
+In Lucknow on 27 Sep 2026, 19 pumps covered 11 of the 13 flood-prone hospitals,
+against 4 for the same number of pumps placed by terrain alone.
+
+**Deployment orders.** Dispatching units sends a `deployment` event through the
+viaSocket webhook to every opted-in official whose area covers the destination. It
+lists the units, their depot and arrival time, and asks for an ACK.
+
+**Better than severity-only.** The baseline ranks places by current score and fills
+each from its nearest depots, using the same stock and scored on the same yardstick.
+On the live data of 27 Sep 2026 the plan reaches ~11% more people (expected) with
+rescue teams and boats, and gets 1,103 units on site before the peak against 815.
+The back-test `python backend/scripts/backtest_planning.py` replays 67 real flood
+dates with the same national stock:
+
+| On 70 real flood place-days | Severity-only | JalDrishti |
+|---|---|---|
+| Flooded places reached in time | 59 | **64** |
+| Flooded places reached at all | 63 | **66** |
+| People reached in places that flooded | 4.30 M | 4.28 M (−0.5%) |
+
+The planner reaches more of the places that really flooded, and on time, while total
+people reached is on par. Timing in the back-test is approximate, and the register
+does not record rescue counts.
 
 ## Official Government of India data
 
@@ -507,7 +609,13 @@ Environment variables, all optional:
 - **The historical register is hand-compiled** and not exhaustive. It is adequate
   for a recency-weighted frequency feature and for back-testing, and is not a
   substitute for an official disaster database.
-- **No authentication and no rate limiting** on the API. It is a local prototype.
+- **No rate limiting** on the API, including citizen sign-up. It is a prototype.
+- **Open-Meteo's free daily quota** (per IP) can run out after many restarts or
+  climatology builds. When it does, JalDrishti pauses all Open-Meteo calls until the
+  quota resets (00:05 UTC) instead of retrying. It keeps re-scoring on the last good
+  weather, or on the last run's model scores, with live CWC gauges and SACHET alerts
+  on top. The masthead shows "Gauges live · weather paused", with the weather's age
+  and the resume time.
 
 ---
 

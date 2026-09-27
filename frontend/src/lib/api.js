@@ -19,6 +19,12 @@ export class ApiError extends Error {
   }
 }
 
+// Session token, set by lib/auth.js after sign-in and sent with every call.
+let authToken = null;
+export function setAuthToken(token) {
+  authToken = token;
+}
+
 async function request(path, { signal, method = 'GET', body } = {}) {
   let res;
   try {
@@ -28,6 +34,7 @@ async function request(path, { signal, method = 'GET', body } = {}) {
       headers: {
         Accept: 'application/json',
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
@@ -55,7 +62,30 @@ async function request(path, { signal, method = 'GET', body } = {}) {
 /** Append ?date= when the national Time Machine is active. */
 const withDate = (path, date) => (date ? `${path}${path.includes('?') ? '&' : '?'}date=${date}` : path);
 
+/** Plain links, not fetched: CAP 1.2 XML is for other alerting systems to read. */
+export const capLinks = {
+  feed: `${BASE}/api/cap/feed.atom`,
+  alert: (id) => `${BASE}/api/cap/alerts/${encodeURIComponent(id)}.xml`,
+};
+
 export const api = {
+  authOptions: (opts) => request('/api/auth/options', opts),
+  login: (username, password) => request('/api/auth/login', { method: 'POST', body: { username, password } }),
+  demoLogin: (role, state, district) => request('/api/auth/demo', { method: 'POST', body: { role, state, district } }),
+  register: (details) => request('/api/auth/register', { method: 'POST', body: details }),
+  plan: (opts) => request('/api/plan', opts),
+  replan: () => request('/api/plan/replan', { method: 'POST' }),
+  planHistory: (opts) => request('/api/plan/history', opts),
+  cityPlan: (id, opts) => request(`/api/plan/city/${encodeURIComponent(id)}`, opts),
+  dispatch: (planId, orderIds) => request('/api/plan/dispatch', { method: 'POST', body: { plan_id: planId, order_ids: orderIds } }),
+  releaseDeployment: (id) => request(`/api/deployments/${encodeURIComponent(id)}/release`, { method: 'POST' }),
+  resources: (opts) => request('/api/resources', opts),
+  setStock: (depotId, rtype, total) => request('/api/resources/stock', { method: 'POST', body: { depot_id: depotId, rtype, total } }),
+  me: (opts) => request('/api/auth/me', opts),
+  notifySettings: (opts) => request('/api/me/notify', opts),
+  saveNotify: (prefs) => request('/api/me/notify', { method: 'PUT', body: prefs }),
+  testNotify: () => request('/api/me/notify/test', { method: 'POST' }),
+  brief: (since, opts) => request(`/api/me/brief${since ? `?since=${encodeURIComponent(since)}` : ''}`, opts),
   system: (opts) => request('/api/system', opts),
   health: (opts) => request('/api/health', opts),
   countrySummary: (date, opts) => request(withDate('/api/country/summary', date), opts),

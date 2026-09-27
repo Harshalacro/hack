@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { api } from '../lib/api';
+import { api, capLinks } from '../lib/api';
 import IndiaMap from '../components/IndiaMap';
 import {
   canonicalState,
@@ -94,11 +94,25 @@ export function OfficialPage({ lang, onOpenStation, onViewState }) {
           ? 'केंद्रीय जल आयोग (CWC) के प्रति घंटा नदी स्तर और NDMA SACHET पर IMD, CWC व राज्य आपदा प्राधिकरणों की चेतावनियाँ — सीधे स्रोत से'
           : 'Hourly river levels from the Central Water Commission and the CAP alerts IMD, CWC and State Disaster Management Authorities publish on NDMA SACHET — straight from source'
       }
-      right={<GovBadge>ffs.india-water.gov.in · sachet.ndma.gov.in</GovBadge>}
+      right={
+        <div className="flex flex-wrap items-center gap-2">
+          <GovBadge>ffs.india-water.gov.in · sachet.ndma.gov.in</GovBadge>
+          <a
+            data-tour="al-cap"
+            href={capLinks.feed}
+            target="_blank"
+            rel="noreferrer"
+            className="btn px-2.5 py-1 text-[11px]"
+            title={lang === 'hi' ? 'JalDrishti की चेतावनियाँ OASIS CAP 1.2 प्रारूप में (अभ्यास स्थिति, आधिकारिक नहीं)' : "JalDrishti's own warnings in OASIS CAP 1.2 (status Exercise, not official)"}
+          >
+            {lang === 'hi' ? 'हमारा CAP 1.2 फ़ीड ↗' : 'Our CAP 1.2 feed ↗'}
+          </a>
+        </div>
+      }
     >
       {error && <p className="text-risk-red">{error}</p>}
       {summary && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5" data-tour="al-stats">
           <Stat label={lang === 'hi' ? 'खतरे से ऊपर गेज' : 'Gauges above danger'} value={summary.gauges.danger} colour="#C1121F" />
           <Stat label={lang === 'hi' ? 'चेतावनी से ऊपर गेज' : 'Gauges above warning'} value={summary.gauges.warning} colour="#E4701E" />
           <Stat label={lang === 'hi' ? 'निगरानी गेज' : 'Gauges monitored'} value={summary.gauges.catalogued} sub={lang === 'hi' ? 'खतरे के निशान सहित' : 'with published danger marks'} />
@@ -112,7 +126,7 @@ export function OfficialPage({ lang, onOpenStation, onViewState }) {
       )}
 
       <div className="panel">
-        <div className="flex flex-wrap items-center gap-2 border-b border-ink-700 p-3">
+        <div className="flex flex-wrap items-center gap-2 border-b border-ink-700 p-3" data-tour="al-tabs">
           {[
             ['gauges', lang === 'hi' ? `नदी गेज (${gaugeRows.length})` : `River gauges (${gaugeRows.length})`],
             ['alerts', lang === 'hi' ? `चेतावनियाँ (${alertRows.length})` : `Alerts (${alertRows.length})`],
@@ -172,7 +186,7 @@ export function OfficialPage({ lang, onOpenStation, onViewState }) {
                     <td className="px-3 py-2 text-ink-400">{g.trend?.toLowerCase() ?? '—'}</td>
                     <td className="px-3 py-2 font-mono text-ink-400">{g.hfl ?? '—'} {g.hfl_date ? `(${g.hfl_date.slice(0, 4)})` : ''}</td>
                     <td className="px-3 py-2 text-right">
-                      <button type="button" className="btn px-2 py-1 text-[11px]" onClick={() => onOpenStation(g.code)}>
+                      <button type="button" data-tour="al-graph" className="btn px-2 py-1 text-[11px]" onClick={() => onOpenStation(g.code)}>
                         {lang === 'hi' ? 'ग्राफ़ + एआई' : 'Graph + AI'}
                       </button>
                     </td>
@@ -262,7 +276,7 @@ export function StateMonitor({ lang, country, locations = [], alerts = [], onVie
           : `All ${country?.states?.length ?? 36} states & union territories — the model's assessment beside official CWC gauge readings`
       }
       right={
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" data-tour="sm-filters">
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={lang === 'hi' ? 'राज्य खोजें…' : 'Find a state…'} className="w-44 rounded-lg border border-ink-700 bg-white px-3 py-1.5 text-[12px]" />
           <select value={tier} onChange={(e) => setTier(e.target.value)} className="rounded-lg border border-ink-700 bg-white px-2 py-1.5 text-[12px]">
             <option value="all">{lang === 'hi' ? 'सभी स्तर' : 'All levels'}</option>
@@ -280,6 +294,7 @@ export function StateMonitor({ lang, country, locations = [], alerts = [], onVie
         </div>
       }
     >
+      <div data-tour="sm-map">
       <StateCasesMap
         lang={lang}
         country={country}
@@ -295,6 +310,7 @@ export function StateMonitor({ lang, country, locations = [], alerts = [], onVie
         onOpenLocation={onOpenLocation}
         onOpenStation={onOpenStation}
       />
+      </div>
 
       {picked && (
         <div className="flex items-center gap-2 text-[12px] text-ink-300">
@@ -305,7 +321,7 @@ export function StateMonitor({ lang, country, locations = [], alerts = [], onVie
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4" data-tour="sm-cards">
         {rows.map((s) => {
           const g = gaugeByState[s.state];
           const colour = tierColour(s.tier);
@@ -384,7 +400,7 @@ function StateWeather({ lang, wx }) {
   const place = lang === 'hi' && wx.place_hi ? wx.place_hi : wx.place;
   const wettest = lang === 'hi' && wx.wettest?.name_hi ? wx.wettest.name_hi : wx.wettest?.name;
   return (
-    <div className="mt-2 rounded-lg border border-ink-800 bg-ink-850 px-2.5 py-2">
+    <div className="mt-2 rounded-lg border border-ink-800 bg-ink-850 px-2.5 py-2" data-tour="sm-weather">
       <div className="flex items-center gap-2">
         <span className="text-2xl leading-none" aria-hidden>{info.icon}</span>
         <div className="min-w-0 flex-1">
@@ -592,7 +608,7 @@ export function TimeMachine({ lang, replayDate, onReplay, onExit }) {
         )
       }
     >
-      <div className="panel flex flex-wrap items-end gap-3 p-4">
+      <div className="panel flex flex-wrap items-end gap-3 p-4" data-tour="tm-date">
         <label className="block">
           <span className="text-[11px] font-semibold text-ink-400">{lang === 'hi' ? 'कोई भी तिथि चुनें' : 'Pick any date'}</span>
           <input
@@ -615,9 +631,16 @@ export function TimeMachine({ lang, replayDate, onReplay, onExit }) {
       </div>
 
       <h3 className={`pt-2 text-[13px] font-bold uppercase tracking-wider text-chakra-500 ${hi(lang)}`}>
-        {lang === 'hi' ? 'प्रमुख दर्ज बाढ़ें' : 'Major recorded floods'}
+        {lang === 'hi' ? 'आपके क्षेत्र की प्रमुख दर्ज बाढ़ें' : 'Major recorded floods in your area'}
       </h3>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {presets.length === 0 && (
+        <p className={`text-[12.5px] text-ink-400 ${hi(lang)}`}>
+          {lang === 'hi'
+            ? 'आपके क्षेत्र में कोई बड़ी दर्ज बाढ़ नहीं है — ऊपर कोई भी तारीख़ चुनें।'
+            : 'No major recorded flood in your area — pick any date above.'}
+        </p>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" data-tour="tm-presets">
         {presets.map((p) => (
           <button
             key={p.date}

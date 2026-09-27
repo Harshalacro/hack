@@ -4,6 +4,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer,
 import { api } from '../lib/api';
 import { stateName } from '../lib/format';
 import { go } from '../lib/router';
+import { TownsInPath } from '../components/FloodWave';
 import { GovBadge } from '../components/Official';
 import { SectionHead, Spinner } from '../components/Primitives';
 
@@ -102,8 +103,12 @@ export default function RiversPage({ lang, river: routeRiver, onOpenStation }) {
     if (bounds.length && mapRef.current) {
       const b = bounds.reduce((acc, x) => acc.extend(x), L.latLngBounds(bounds[0].getSouthWest(), bounds[0].getNorthEast()));
       mapRef.current.flyToBounds(b, { padding: [30, 30], duration: 0.7 });
+    } else if (!selected && data.scope && data.scope !== 'central' && mapRef.current) {
+      // A state or district user opens on their own area, not all of India.
+      const pts = gauges.filter((g) => g.lat != null).map((g) => [g.lat, g.lon]);
+      if (pts.length) mapRef.current.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 9 });
     }
-  }, [data, selected, lang]);
+  }, [data, selected, lang, gauges]);
 
   // gauges
   useEffect(() => {
@@ -157,7 +162,9 @@ export default function RiversPage({ lang, river: routeRiver, onOpenStation }) {
       <div className="flex flex-wrap items-end justify-between gap-3 border-b-2 border-saffron-500 pb-3">
         <div>
           <h1 className={`text-2xl font-extrabold tracking-tight text-chakra-500 ${hi(lang)}`}>
-            {lang === 'hi' ? 'भारत की नदियाँ — जल स्तर स्थिति' : 'India Rivers — live water-level status'}
+            {data?.scope && data.scope !== 'central'
+              ? lang === 'hi' ? 'आपके क्षेत्र की नदियाँ — जल स्तर स्थिति' : 'Rivers in your area — live water-level status'
+              : lang === 'hi' ? 'भारत की नदियाँ — जल स्तर स्थिति' : 'India Rivers — live water-level status'}
           </h1>
           <p className={`text-[12px] text-ink-400 ${hi(lang)}`}>
             {lang === 'hi'
@@ -187,7 +194,7 @@ export default function RiversPage({ lang, river: routeRiver, onOpenStation }) {
       )}
 
       <div className="grid gap-4 xl:grid-cols-[300px_1fr]">
-        <section className="panel flex max-h-[640px] flex-col">
+        <section className="panel flex max-h-[640px] flex-col" data-tour="rv-list">
           <SectionHead title={lang === 'hi' ? 'नदियाँ' : 'Rivers'} lang={lang} right={selected && <button type="button" className="text-[11px] font-bold text-saffron-300" onClick={() => go('/rivers')}>{lang === 'hi' ? 'सभी' : 'All'}</button>} />
           {!data ? (
             <Spinner lang={lang} />
@@ -221,7 +228,7 @@ export default function RiversPage({ lang, river: routeRiver, onOpenStation }) {
         </section>
 
         <div className="space-y-4">
-          <section className="panel relative isolate h-[640px] overflow-hidden">
+          <section className="panel relative isolate h-[640px] overflow-hidden" data-tour="rv-map">
             <div ref={hostRef} className="jd-map h-full w-full" />
             <div className="absolute bottom-3 left-3 z-[500] rounded-lg border border-ink-700 bg-white px-3 py-2 shadow-panel">
               <div className={`mb-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-500 ${hi(lang)}`}>{lang === 'hi' ? 'नदी खंड' : 'River reach'}</div>
@@ -240,7 +247,7 @@ export default function RiversPage({ lang, river: routeRiver, onOpenStation }) {
             </div>
           </section>
 
-          <section className="panel">
+          <section className="panel" data-tour="rv-profile">
             <SectionHead
               title={current ? `${lang === 'hi' ? current.name_hi : current.name} — ${lang === 'hi' ? 'ऊपर से नीचे तक खतरा प्रोफ़ाइल' : 'upstream → downstream danger profile'}` : lang === 'hi' ? 'नदी प्रोफ़ाइल' : 'River profile'}
               lang={lang}
@@ -283,6 +290,7 @@ export default function RiversPage({ lang, river: routeRiver, onOpenStation }) {
               </div>
             )}
           </section>
+          {data && <TownsInPath lang={lang} rows={data.towns_in_path ?? []} onOpenStation={onOpenStation} />}
           {data && <p className="text-[10.5px] text-ink-500">{data.method}</p>}
         </div>
       </div>

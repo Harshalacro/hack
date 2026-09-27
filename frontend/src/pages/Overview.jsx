@@ -199,7 +199,7 @@ export default function Overview({
   };
 
   const crumbs = useMemo(() => {
-    const out = [{ label: t(lang, 'india'), to: selectedState ? '/' : null }];
+    const out = [{ label: t(lang, 'india'), to: selectedState ? '/map' : null }];
     if (selectedState) out.push({ label: stateName(selectedState, lang), to: null });
     return out;
   }, [lang, selectedState]);
@@ -209,9 +209,9 @@ export default function Overview({
       id="main-content"
       className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 scrollbar-thin lg:grid lg:grid-cols-[minmax(270px,20rem)_1fr_minmax(300px,23rem)] lg:overflow-hidden"
     >
-      <aside className="shrink-0 lg:min-h-0 lg:overflow-hidden">
+      <aside className="shrink-0 lg:min-h-0 lg:overflow-hidden" data-tour="ov-left">
         {selectedState && stateData ? (
-          <StatePanel lang={lang} state={stateData} onBack={() => go('/')} onSelectLocation={setSelectedId} selectedLocationId={selectedId} />
+          <StatePanel lang={lang} state={stateData} onBack={() => go('/map')} onSelectLocation={setSelectedId} selectedLocationId={selectedId} />
         ) : (
           <NationalPanel
             lang={lang}
@@ -224,7 +224,7 @@ export default function Overview({
         )}
       </aside>
 
-      <section className="panel relative isolate h-[62vh] min-h-[360px] overflow-hidden lg:h-auto lg:min-h-0">
+      <section className="panel relative isolate h-[62vh] min-h-[360px] overflow-hidden lg:h-auto lg:min-h-0" data-tour="ov-map">
         <IndiaMap
           lang={lang}
           states={country?.states ?? []}
@@ -255,7 +255,7 @@ export default function Overview({
           {!selectedState && <span className={`ml-1 hidden text-[10.5px] text-ink-500 sm:inline ${hi(lang)}`}>— {t(lang, 'clickState')}</span>}
         </div>
 
-        <div className="absolute right-3 top-3 z-[500] flex flex-col items-end gap-1.5">
+        <div className="absolute right-3 top-3 z-[500] flex flex-col items-end gap-1.5" data-tour="ov-layers">
           <div className="flex items-center rounded-lg border border-ink-700 bg-white p-0.5 shadow-panel">
             {[
               ['light', lang === 'hi' ? 'सरल' : 'Light'],
@@ -301,7 +301,7 @@ export default function Overview({
           )}
         </div>
 
-        <div className="absolute bottom-3 left-3 z-[500] rounded-lg border border-ink-700 bg-white px-3 py-2 shadow-panel">
+        <div className="absolute bottom-3 left-3 z-[500] rounded-lg border border-ink-700 bg-white px-3 py-2 shadow-panel" data-tour="ov-legend">
           <div className={`kicker mb-1.5 ${hi(lang)}`}>{t(lang, 'mapLegend')}</div>
           <TierLegend lang={lang} counts={country?.counts} />
           <p className={`mt-1.5 border-t border-ink-800 pt-1.5 text-[10px] text-ink-500 ${hi(lang)}`}>
@@ -310,7 +310,7 @@ export default function Overview({
         </div>
       </section>
 
-      <aside className="shrink-0 lg:min-h-0 lg:overflow-hidden">
+      <aside className="shrink-0 lg:min-h-0 lg:overflow-hidden" data-tour="ov-right">
         <LocationSummary lang={lang} id={selectedId} replayDate={replayDate} onOpenStation={onOpenStation} />
       </aside>
     </main>
