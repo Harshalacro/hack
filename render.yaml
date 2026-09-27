@@ -30,6 +30,31 @@ services:
         sync: false               # e.g. https://jaldrishti.vercel.app/api/cwc
       - key: JALDRISHTI_CWC_RELAY_TOKEN
         sync: false               # same value as CWC_RELAY_TOKEN on Vercel
+      # Sign-in. A fixed signing key keeps people signed in across deploys and
+      # restarts (Render generates it once). Set the seed password for the
+      # central/state/district admin accounts in the dashboard; without it they
+      # use the public default from the README. Demo sign-in stays on for judges.
+      - key: JALDRISHTI_SECRET
+        generateValue: true
+      - key: JALDRISHTI_SEED_PASSWORD
+        sync: false
+      - key: JALDRISHTI_DEMO_LOGIN
+        value: "1"
+      # Alerts through viaSocket (docs/NOTIFICATIONS.md). The webhook URL and the
+      # recipients are set in the dashboard. Recipients: a JSON list restored at
+      # every boot, because the free plan has no disk to keep the Notifications page's
+      # settings, e.g. [{"username":"central","email":"you@example.org","channels":["email"]}]
+      - key: JALDRISHTI_NOTIFY_WEBHOOK
+        sync: false
+      - key: JALDRISHTI_NOTIFY_SECRET
+        generateValue: true
+      - key: JALDRISHTI_NOTIFY_RECIPIENTS
+        sync: false
+      # Links in emails and WhatsApp messages. Replace with your Vercel domain.
+      - key: JALDRISHTI_PUBLIC_WEB_URL
+        value: https://jaldrishti.vercel.app
+      # Keep-alive: nothing to set. The backend pings RENDER_EXTERNAL_URL (set by
+      # Render) every 10 min so the free instance does not sleep.
       # Optional API keys: set the values in the dashboard (never commit them).
       - key: GEMINI_API_KEY
         sync: false

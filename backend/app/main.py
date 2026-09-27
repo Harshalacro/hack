@@ -86,6 +86,36 @@ async def _notify_loop() -> None:
             log.warning("notification dispatch failed: %s", exc)
 
 
+KEEPALIVE_MINUTES = 10
+
+
+async def _keepalive_loop() -> None:
+    """
+    Keep a free-tier host awake. Render's free plan spins an instance down after
+    15 minutes without inbound traffic, which would also stop the gauge sweep,
+    the refresh and the alert dispatch. A request to our own public URL goes in
+    through Render's proxy and counts as traffic. Render sets RENDER_EXTERNAL_URL;
+    JALDRISHTI_KEEPALIVE_URL overrides it (empty = off, e.g. when running locally).
+    """
+    import os
+
+    import httpx
+
+    base = os.getenv("JALDRISHTI_KEEPALIVE_URL", os.getenv("RENDER_EXTERNAL_URL", "")).strip().rstrip("/")
+    if not base:
+        return
+    log.info("keep-alive: pinging %s/api/health every %d min", base, KEEPALIVE_MINUTES)
+    async with httpx.AsyncClient(timeout=30, headers={"User-Agent": "JalDrishti-keepalive"}) as client:
+        while True:
+            await asyncio.sleep(KEEPALIVE_MINUTES * 60)
+            try:
+                r = await client.get(f"{base}/api/health")
+                if r.status_code >= 400:
+                    log.warning("keep-alive ping answered HTTP %s", r.status_code)
+            except Exception as exc:
+                log.warning("keep-alive ping failed: %s", exc)
+
+
 GAUGE_SWEEP_MINUTES = 15
 FIRST_RUN_RETRY_S = 240
 
@@ -193,6 +223,9 @@ async def lifespan(app: FastAPI):
 
         resources.init()
         planning.init()
+        seeded = notify.seed_from_env()
+        if seeded:
+            log.info("restored %d alert recipients from JALDRISHTI_NOTIFY_RECIPIENTS", seeded)
         if added:
             log.info("created %d sign-in accounts (central, states, districts)", added)
     except Exception as exc:
@@ -207,10 +240,11 @@ async def lifespan(app: FastAPI):
     loop = asyncio.create_task(_refresh_loop())
     gauges = asyncio.create_task(_gauge_loop())
     notifier = asyncio.create_task(_notify_loop())
+    keepalive = asyncio.create_task(_keepalive_loop())
     try:
         yield
     finally:
-        for task in (boot, loop, gauges, notifier):
+        for task in (boot, loop, gauges, notifier, keepalive):
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
@@ -232,7 +266,7 @@ app.add_middleware(
     allow_origins=CORS_ORIGINS,
     allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 

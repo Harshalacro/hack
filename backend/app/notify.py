@@ -510,3 +510,42 @@ async def send_deployment(orders: list[dict], by: dict) -> int:
                     status = await _post(client, p, "deployment", payload)
                     sent += status == "sent"
     return sent
+
+
+def seed_from_env() -> int:
+    """
+    Recreate opted-in recipients from JALDRISHTI_NOTIFY_RECIPIENTS at boot.
+
+    A host without a persistent disk (Render Free) starts every deploy with an empty
+    database, which would silently drop everyone who opted in on the Notifications
+    page. This env var - a JSON list set in the host's dashboard, never committed -
+    brings them back. Each entry names an existing account plus its contact details:
+
+        [{"username": "central", "name": "Control room", "email": "ops@example.org",
+          "whatsapp": "+9198xxxxxxxx", "channels": ["email", "whatsapp"]}]
+
+    Recipients already in the database are left as they are (the UI wins).
+    """
+    import os
+
+    from .auth import _user_row
+
+    raw = os.getenv("JALDRISHTI_NOTIFY_RECIPIENTS", "").strip()
+    if not raw:
+        return 0
+    try:
+        entries = json.loads(raw)
+    except ValueError:
+        log.warning("JALDRISHTI_NOTIFY_RECIPIENTS is not valid JSON; ignored")
+        return 0
+    n = 0
+    for e in entries if isinstance(entries, list) else []:
+        user = _user_row(str(e.get("username", "")).strip().lower())
+        if not user:
+            log.warning("JALDRISHTI_NOTIFY_RECIPIENTS: no account %r; skipped", e.get("username"))
+            continue
+        if get_prefs(user["username"]):
+            continue
+        save_prefs(user, {"channels": ["email"], "daily_brief": True, "enabled": True} | e)
+        n += 1
+    return n
