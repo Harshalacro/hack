@@ -2,6 +2,10 @@
 
 **Hyperlocal Rainfall Early Warning & Inundation Prediction — a working prototype for India**
 
+**Live demo: [hack-eosin-two.vercel.app](https://hack-eosin-two.vercel.app)**. Use
+**Quick demo** on the sign-in page to enter as an official (central, state, district) or
+a citizen, no password needed.
+
 An AI/ML early-warning system that integrates **observational weather**, **numerical
 weather prediction** rainfall forecasts, **satellite-derived terrain and hydrological
 reanalysis**, and **official gauge observations and alerts** into one warning level per

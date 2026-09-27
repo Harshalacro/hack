@@ -16,12 +16,13 @@ services:
         value: 3.12.8
       - key: PYTHONUNBUFFERED
         value: "1"
-      # Exact frontend origins, comma separated. Replace with your Vercel domain.
+      # Exact frontend origins, comma separated: the Vercel project's domain.
       - key: JALDRISHTI_CORS
-        value: https://jaldrishti.vercel.app
-      # Also allow Vercel preview deployments of the same project.
+        value: https://hack-eosin-two.vercel.app
+      # Extra origins as a regex. Kept to the exact domain: a looser "hack-..."
+      # pattern would also admit other people's Vercel projects.
       - key: JALDRISHTI_CORS_REGEX
-        value: https://jaldrishti(-[a-z0-9-]+)?\.vercel\.app
+        value: https://hack-eosin-two\.vercel\.app
       - key: JALDRISHTI_REFRESH_MINUTES
         value: "90"
       # CWC blocks non-Indian servers: route its requests through the relay that
@@ -52,7 +53,7 @@ services:
         sync: false
       # Links in emails and WhatsApp messages. Replace with your Vercel domain.
       - key: JALDRISHTI_PUBLIC_WEB_URL
-        value: https://jaldrishti.vercel.app
+        value: https://hack-eosin-two.vercel.app
       # Keep-alive: nothing to set. The backend pings RENDER_EXTERNAL_URL (set by
       # Render) every 10 min so the free instance does not sleep.
       # Optional API keys: set the values in the dashboard (never commit them).
