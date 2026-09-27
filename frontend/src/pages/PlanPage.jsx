@@ -46,20 +46,54 @@ function Stat({ label, ours, base, better, note }) {
   );
 }
 
-function PlanMap({ plan, types }) {
+const TIERS = ['red', 'orange', 'yellow', 'green'];
+const ON_TIME = '#0B2A5B';
+const LATE = '#8A97AB';
+
+/** Points along a gentle arc from a to b, so routes into one place fan out. */
+function arc(a, b, bend = 0.15, n = 16) {
+  const [y1, x1] = a;
+  const [y2, x2] = b;
+  const mx = (x1 + x2) / 2 - (y2 - y1) * bend;
+  const my = (y1 + y2) / 2 + (x2 - x1) * bend;
+  const pts = [];
+  for (let i = 0; i <= n; i += 1) {
+    const t = i / n;
+    const u = 1 - t;
+    pts.push([u * u * y1 + 2 * u * t * my + t * t * y2, u * u * x1 + 2 * u * t * mx + t * t * x2]);
+  }
+  return pts;
+}
+
+/**
+ * Overview first, detail on demand: the map shows only the places at risk and the
+ * NDRF bases until a place is hovered or clicked; then that place's supply routes
+ * appear with each depot labelled. "All routes" draws the national picture, thin.
+ */
+function PlanMap({ plan, lang, tname, filter, onSelectPlace }) {
+  const L_ = (en, hi) => (lang === 'hi' ? hi : en);
   const hostRef = useRef(null);
   const mapRef = useRef(null);
   const layerRef = useRef(null);
+  const [hover, setHover] = useState(null);
+  const [picked, setPicked] = useState(null);
+  const [allRoutes, setAllRoutes] = useState(false);
+  const focus = hover ?? picked;
 
   useEffect(() => {
     if (mapRef.current || !hostRef.current) return undefined;
-    const map = L.map(hostRef.current, { zoomSnap: 0.5, minZoom: 4 });
+    const map = L.map(hostRef.current, { zoomSnap: 0.5, minZoom: 4, scrollWheelZoom: false });
     map.zoomControl.setPosition('bottomright');
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
       attribution: 'Basemap &copy; Esri · Roads: OpenStreetMap / OSRM',
       maxZoom: 14,
     }).addTo(map);
+    fetch('/geo/india-states.geojson')
+      .then((r) => r.json())
+      .then((gj) => L.geoJSON(gj, { style: { color: '#CBD3DE', weight: 0.6, fill: false }, interactive: false }).addTo(map))
+      .catch(() => {});
     map.fitBounds([[6.5, 68], [36.5, 97.5]]);
+    map.on('click', () => setPicked(null));
     layerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     setTimeout(() => map.invalidateSize(), 100);
@@ -69,42 +103,180 @@ function PlanMap({ plan, types }) {
     };
   }, []);
 
+  // One route per depot -> place for units that actually travel.
+  const flows = useMemo(() => {
+    if (!plan) return [];
+    const by = new Map();
+    plan.orders.forEach((o) => {
+      if (o.basis === 'same_place' || (filter !== 'all' && o.rtype !== filter)) return;
+      const dst = plan.placesById[o.place_id];
+      if (!dst) return;
+      const k = `${o.depot_id}|${o.place_id}`;
+      const f = by.get(k) ?? { depot: o, place: dst, units: 0, late: 0, parts: {}, arrive: 0 };
+      f.units += o.count;
+      if (o.timely < 0.999) f.late += o.count;
+      f.parts[o.rtype] = (f.parts[o.rtype] ?? 0) + o.count;
+      f.arrive = Math.max(f.arrive, o.arrive_h);
+      by.set(k, f);
+    });
+    return [...by.values()];
+  }, [plan, filter]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !plan) return;
+    const pts = plan.places.map((p) => [p.lat, p.lon]);
+    if (pts.length > 1) map.fitBounds(L.latLngBounds(pts).pad(0.12), { maxZoom: 8 });
+    else if (pts.length === 1) map.setView(pts[0], 8);
+  }, [plan?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const layer = layerRef.current;
     if (!layer || !plan) return;
     layer.clearLayers();
-    const pts = [];
-    plan.orders.forEach((o) => {
-      const dst = plan.placesById[o.place_id];
-      if (!dst || o.depot_lat === undefined || o.basis === 'same_place') return;
-      L.polyline([[o.depot_lat, o.depot_lon], [dst.lat, dst.lon]], {
-        color: TYPE_COLOUR[o.rtype],
-        weight: 1 + Math.min(4, o.count / 6),
-        opacity: 0.55,
-        dashArray: o.timely < 0.999 ? '4 5' : null,
-      })
-        .bindTooltip(`${o.count} ${types?.[o.rtype]?.en ?? o.rtype} · ${o.depot_name} → ${o.place_name} · ~${o.arrive_h} h`)
-        .addTo(layer);
-    });
-    const depots = new Map();
-    plan.orders.forEach((o) => depots.set(o.depot_id, o));
-    depots.forEach((o) => {
-      L.circleMarker([o.depot_lat, o.depot_lon], { radius: 4, color: '#0B2A5B', weight: 2, fillColor: '#fff', fillOpacity: 1 })
-        .bindTooltip(o.depot_name)
-        .addTo(layer);
-    });
-    plan.places.forEach((p) => {
-      const r = 4 + Math.min(14, Math.sqrt(p.expected_affected || 0) / 30);
-      L.circleMarker([p.lat, p.lon], { radius: r, color: '#fff', weight: 1, fillColor: tierColour(p.tier), fillOpacity: 0.85 })
-        .bindTooltip(`#${p.rank} ${p.name} · score ${Math.round(p.s_now)} → ${Math.round(p.s_peak)}`)
-        .addTo(layer);
-      pts.push([p.lat, p.lon]);
-    });
-    if (pts.length > 1) mapRef.current.fitBounds(L.latLngBounds(pts).pad(0.25), { maxZoom: 8 });
-    else if (pts.length === 1) mapRef.current.setView(pts[0], 8);
-  }, [plan, types]);
+    const colourOf = (late) => (filter === 'all' ? (late ? LATE : ON_TIME) : TYPE_COLOUR[filter]);
+    const shown = focus ? flows.filter((f) => f.place.id === focus) : allRoutes ? flows : [];
 
-  return <div ref={hostRef} className="h-[380px] w-full rounded-xl" aria-label="Map of planned resource movements" />;
+    // 1. routes: bold for the focused place, thin for the national picture
+    shown.forEach((f) => {
+      const late = f.late * 2 > f.units;
+      L.polyline(arc([f.depot.depot_lat, f.depot.depot_lon], [f.place.lat, f.place.lon]), {
+        color: colourOf(late),
+        weight: focus ? Math.min(6, 2 + Math.sqrt(f.units) * 0.6) : 1.2,
+        opacity: focus ? 0.9 : 0.28,
+        dashArray: late ? (focus ? '6 6' : '3 5') : null,
+        lineCap: 'round',
+        interactive: false,
+      }).addTo(layer);
+    });
+
+    // 2. NDRF bases always (small, unlabelled); with a focus, only its suppliers, labelled
+    const feeding = new Map(shown.map((f) => [f.depot.depot_id, f]));
+    const bases = new Map();
+    plan.orders.forEach((o) => {
+      if (o.depot_kind === 'ndrf') bases.set(o.depot_id, o);
+    });
+    const depotMarks = focus ? [...feeding.values()].map((f) => f.depot) : [...bases.values()];
+    depotMarks.forEach((o) => {
+      const ndrf = o.depot_kind === 'ndrf';
+      const size = focus ? 14 : 9;
+      const html = `<div style="width:${size}px;height:${size}px;border-radius:3px;background:${ndrf ? '#0B2A5B' : '#fff'};border:2px solid #0B2A5B;box-shadow:0 1px 2px rgba(0,0,0,.3)"></div>`;
+      const m = L.marker([o.depot_lat, o.depot_lon], {
+        icon: L.divIcon({ html, className: '', iconSize: [size, size], iconAnchor: [size / 2, size / 2] }),
+        zIndexOffset: 400,
+        interactive: !focus,
+      }).addTo(layer);
+      if (focus) {
+        const f = feeding.get(o.depot_id);
+        const parts = Object.entries(f.parts).map(([r, n]) => `${n} ${tname(r).toLowerCase()}`).join(', ');
+        m.bindTooltip(`<b>${o.depot_name.replace(' Bn NDRF', ' NDRF')}</b><br>${parts} · ~${f.arrive} h${f.late * 2 > f.units ? ' ⚠' : ''}`, {
+          permanent: true,
+          direction: 'right',
+          offset: [8, 0],
+          className: 'jd-plan-label',
+        });
+      } else {
+        m.bindTooltip(o.depot_name);
+      }
+    });
+
+    // 3. places: colour = level, size = people expected to be affected
+    [...plan.places]
+      .sort((a, b) => (b.expected_affected || 0) - (a.expected_affected || 0))
+      .forEach((p) => {
+        const r = 4 + Math.min(9, Math.sqrt(p.expected_affected || 0) / 40);
+        const isFocus = p.id === focus;
+        const dim = focus && !isFocus;
+        L.circleMarker([p.lat, p.lon], {
+          radius: isFocus ? r + 3 : r,
+          color: isFocus ? '#0B2A5B' : '#fff',
+          weight: isFocus ? 3 : 1.2,
+          fillColor: tierColour(p.tier),
+          fillOpacity: dim ? 0.25 : 0.9,
+          bubblingMouseEvents: false,
+        })
+          .bindTooltip(`<b>#${p.rank} ${p.name}</b> · ${p.state}`, { direction: 'top', offset: [0, -r] })
+          .on('mouseover', () => setHover(p.id))
+          .on('mouseout', () => setHover(null))
+          .on('click', () => setPicked((cur) => (cur === p.id ? null : p.id)))
+          .addTo(layer);
+      });
+  }, [plan, flows, focus, allRoutes, filter, lang]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fp = focus ? plan.placesById[focus] : null;
+  const fFlows = fp ? flows.filter((f) => f.place.id === fp.id) : [];
+  const fUnits = fFlows.reduce((n, f) => n + f.units, 0);
+  const fLate = fFlows.reduce((n, f) => n + f.late, 0);
+  const local = fp ? (plan.ordersByPlace[fp.id] ?? []).filter((o) => o.basis === 'same_place' && (filter === 'all' || o.rtype === filter)).reduce((n, o) => n + o.count, 0) : 0;
+  const moving = flows.reduce((n, f) => n + f.units, 0);
+  const late = flows.reduce((n, f) => n + f.late, 0);
+
+  return (
+    <div>
+      <div className="relative">
+        <div ref={hostRef} className="h-[440px] w-full rounded-xl" aria-label={L_('Map of planned resource movements', 'नियोजित संसाधन आवाजाही का नक्शा')} />
+        {fp ? (
+          <div className="absolute left-3 top-3 z-[500] w-[260px] rounded-xl border border-ink-700 bg-white px-3.5 py-3 shadow-lg">
+            <div className="flex items-start gap-2">
+              <span className="mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: tierColour(fp.tier) }} />
+              <div className="min-w-0 flex-1">
+                <div className="text-[13.5px] font-extrabold leading-tight text-chakra-500">#{fp.rank} {lang === 'hi' ? fp.name_hi || fp.name : fp.name}</div>
+                <div className="text-[11.5px] text-ink-500">
+                  {L_(TIER_LABELS[fp.tier].en, TIER_LABELS[fp.tier].hi)} {Math.round(fp.s_now)}
+                  {fp.t_peak ? ` → ${Math.round(fp.s_peak)} ${L_(`in ${fp.t_peak} h`, `${fp.t_peak} घंटे में`)}` : ''} · {fmt(fp.expected_affected)} {L_('expected affected', 'अपेक्षित प्रभावित')}
+                </div>
+              </div>
+            </div>
+            <div className="mt-2 text-[12px] leading-snug text-ink-200">
+              {fUnits > 0
+                ? L_(`${fUnits} units coming from ${fFlows.length} depot${fFlows.length > 1 ? 's' : ''}`, `${fFlows.length} डिपो से ${fUnits} इकाइयाँ`)
+                : L_('No units travelling here', 'यहाँ कोई इकाई नहीं आ रही')}
+              {local > 0 && L_(` · ${local} from the local store`, ` · स्थानीय भंडार से ${local}`)}
+              {fLate > 0 && <span className="text-ink-500">{L_(` · ${fLate} arrive after the peak`, ` · ${fLate} शिखर के बाद`)}</span>}
+            </div>
+            {picked === fp.id && (
+              <button type="button" className="mt-2 text-[12px] font-bold text-chakra-500 hover:underline" onClick={() => onSelectPlace(fp.id)}>
+                {L_('Open in the priority list →', 'प्राथमिकता सूची में खोलें →')}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="pointer-events-none absolute left-3 top-3 z-[500] rounded-lg bg-white/90 px-2.5 py-1.5 text-[11.5px] font-semibold text-ink-400 shadow">
+            {L_('Hover or click a place to see where its units come from', 'इकाइयाँ कहाँ से आ रही हैं देखने हेतु किसी स्थान पर जाएँ या क्लिक करें')}
+          </div>
+        )}
+        <label className="absolute right-3 top-3 z-[500] flex cursor-pointer items-center gap-2 rounded-lg bg-white/95 px-2.5 py-1.5 text-[12px] font-bold text-ink-200 shadow">
+          <input type="checkbox" checked={allRoutes} onChange={(e) => setAllRoutes(e.target.checked)} />
+          {L_('All routes', 'सभी मार्ग')}
+        </label>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11.5px] text-ink-400">
+        <span className="font-bold text-ink-200">
+          {fmt(moving)} {L_('units travelling', 'इकाइयाँ रास्ते में')}
+          {late > 0 && <span className="font-semibold text-ink-500"> · {fmt(late)} {L_('after the peak', 'शिखर के बाद')}</span>}
+        </span>
+        {TIERS.map((t) => (
+          <span key={t} className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: tierColour(t) }} />
+            {L_(TIER_LABELS[t].en, TIER_LABELS[t].hi)}
+          </span>
+        ))}
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-chakra-500" /> {L_('NDRF base', 'एनडीआरएफ आधार')}
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm border-2 border-chakra-500 bg-white" /> SDRF
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-[3px] w-5 rounded" style={{ background: filter === 'all' ? ON_TIME : TYPE_COLOUR[filter] }} /> {L_('before peak', 'शिखर से पहले')}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-5 border-t-[3px] border-dashed" style={{ borderColor: filter === 'all' ? LATE : TYPE_COLOUR[filter] }} /> {L_('after peak', 'शिखर के बाद')}
+        </span>
+        <span>{L_('Circle size = people expected to be affected', 'वृत्त आकार = अपेक्षित प्रभावित लोग')}</span>
+      </div>
+    </div>
+  );
 }
 
 /** Street-level placement of a city's pumps and barricades, loaded on demand. */
@@ -185,6 +357,7 @@ export default function PlanPage({ lang }) {
   const [busy, setBusy] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
   const [open, setOpen] = useState(() => new Set());
+  const [mapFilter, setMapFilter] = useState('all');
   const [notice, setNotice] = useState(null);
 
   const load = useCallback(async (fn = api.plan) => {
@@ -345,14 +518,33 @@ export default function PlanPage({ lang }) {
       <div className="grid gap-5 xl:grid-cols-[1fr_400px]">
         <div className="min-w-0 space-y-5">
           <Card title={L_('Planned movements', 'नियोजित आवाजाही')} right={
-            <span className="flex flex-wrap gap-3 text-[11px] text-ink-400">
-              {Object.keys(TYPE_COLOUR).map((r) => (
-                <span key={r} className="flex items-center gap-1"><span className="inline-block h-1 w-4 rounded" style={{ background: TYPE_COLOUR[r] }} />{tname(r)}</span>
+            <span className="flex flex-wrap gap-1.5" role="group" aria-label={L_('Show resource', 'संसाधन दिखाएँ')}>
+              {['all', ...Object.keys(TYPE_COLOUR)].map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setMapFilter(r)}
+                  aria-pressed={mapFilter === r}
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-bold transition ${
+                    mapFilter === r ? 'border-chakra-500 bg-chakra-500 text-white' : 'border-ink-700 bg-white text-ink-300 hover:border-chakra-500'
+                  }`}
+                >
+                  {r !== 'all' && <span className="inline-block h-2 w-2 rounded-full" style={{ background: TYPE_COLOUR[r] }} />}
+                  {r === 'all' ? L_('All', 'सभी') : tname(r)}
+                </button>
               ))}
-              <span>- - {L_('arrives after peak', 'शिखर के बाद')}</span>
             </span>
           }>
-            <PlanMap plan={view} types={types} />
+            <PlanMap
+              plan={view}
+              lang={lang}
+              tname={tname}
+              filter={mapFilter}
+              onSelectPlace={(id) => {
+                setOpen((prev) => new Set(prev).add(id));
+                setTimeout(() => document.getElementById(`plan-place-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+              }}
+            />
           </Card>
 
           {/* ------------------------------------------------ priority list */}
@@ -366,7 +558,7 @@ export default function PlanPage({ lang }) {
                   const isOpen = open.has(p.id);
                   const short = Object.entries(p.types).filter(([, t]) => t.short > 0);
                   return (
-                    <li key={p.id} className="rounded-xl border border-ink-700" style={{ borderLeft: `4px solid ${tierColour(p.tier)}` }}>
+                    <li key={p.id} id={`plan-place-${p.id}`} className="scroll-mt-24 rounded-xl border border-ink-700" style={{ borderLeft: `4px solid ${tierColour(p.tier)}` }}>
                       <button type="button" onClick={() => toggle(open, setOpen, p.id)} className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-3.5 py-3 text-left" aria-expanded={isOpen}>
                         <span className="w-8 font-mono text-[15px] font-extrabold text-chakra-500">#{p.rank}</span>
                         <span className="min-w-[160px] flex-1">

@@ -266,3 +266,18 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Response plan map: compact labels on the depots feeding the focused place */
+.leaflet-tooltip.jd-plan-label {
+  padding: 2px 7px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #0b2a5b;
+  border: 1px solid rgba(11, 42, 91, 0.25);
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
+}
+.leaflet-tooltip.jd-plan-label::before {
+  display: none;
+}
