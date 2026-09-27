@@ -34,8 +34,6 @@ npm install
 npm run dev            # http://localhost:5173
 ```
 
-**Optional free API keys** — copy `backend/.env.example` to `backend/.env` and fill in
-any of them (see [API keys](#api-keys)). None are required.
 
 **Optional ML bootstrap** (one-off, ~20 minutes, resumable):
 
@@ -48,7 +46,6 @@ builds a 30-year river climatology in the background and re-scores with proper
 seasonal context. The dashboard is usable immediately and gets sharper a couple of
 minutes later; the confidence badge tells you which state it is in.
 
-API docs are at `http://localhost:8000/docs`.
 
 ### Signing in
 
